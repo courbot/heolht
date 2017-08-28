@@ -1,0 +1,6 @@
+MUSE Application
+*******************
+
+
+..  automodule:: muse_application
+	:members:

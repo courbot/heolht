@@ -1,0 +1,385 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>extended_detection_pose &mdash; HEOLTH 1.3 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/classic.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '1.3',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="HEOLTH 1.3 documentation" href="../index.html" />
+    <link rel="up" title="Module code" href="index.html" /> 
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">HEOLTH 1.3 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for extended_detection_pose</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Extended Source detection module.</span>
+
+<span class="sd">The detection is made through a sparsity-constrained GLR test, accounting </span>
+<span class="sd">for the spatial neighborhood through the use of the spatial Field Spread </span>
+<span class="sd">Function (FSF).</span>
+
+<span class="sd">The threshold :math:`\\xi` is set and provide a target maximum probability of false alarm. </span>
+
+<span class="sd">See Courbot, J.-B.; Mazet, V.; Monfrini,E.; Collet, C, *Detection of Faint </span>
+<span class="sd">Extended Sources in Hyperspectral Data and Application to HDF-S MUSE </span>
+<span class="sd">Observation*, ICASSP 2016, *Submitted*.</span>
+
+
+<span class="sd">:author: Jean-Baptiste Courbot - jean-baptiste.courbot@univ-lyon1.fr</span>
+<span class="sd">:date: november 16, 2015</span>
+
+<span class="sd">&quot;&quot;&quot;</span>
+
+
+
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="kn">as</span> <span class="nn">np</span> 
+
+<span class="kn">import</span> <span class="nn">numpy.ma</span> <span class="kn">as</span> <span class="nn">ma</span>
+<span class="kn">import</span> <span class="nn">sys</span> 
+<span class="kn">import</span> <span class="nn">scipy.linalg</span> <span class="kn">as</span> <span class="nn">la</span>
+<span class="kn">import</span> <span class="nn">itertools</span>
+
+<span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="s">&#39;../lib&#39;</span><span class="p">)</span>
+
+<span class="kn">import</span> <span class="nn">detection_preprocessing</span> <span class="kn">as</span> <span class="nn">dp</span>
+
+
+
+
+<span class="k">def</span> <span class="nf">estimer_xb</span><span class="p">(</span><span class="n">liste_vec</span><span class="p">,</span> <span class="n">liste_msk1d</span><span class="p">,</span><span class="n">D_3d_unip</span><span class="p">):</span>
+<div class="viewcode-block" id="estimer_xb"><a class="viewcode-back" href="../extended.html#extended_detection_pose.estimer_xb">[docs]</a>    <span class="sd">&quot;&quot;&quot; </span>
+<span class="sd">    Maximum Likelihood estimations for the provided vectors, under a </span>
+<span class="sd">    1-sparse assumption. This function will be used in the ML estimation </span>
+<span class="sd">    add-on.</span>
+<span class="sd">    </span>
+<span class="sd">    :param ndarray liste_vec: hyperspectral datacube arranged to form an array. Shape: (spatial*spatial, spectral).</span>
+<span class="sd">    :param ndarray liste_msk1d: masked region to process, arranged as an array. Shape: (spatial*spatial).</span>
+<span class="sd">    :param ndarray D_3d_unip: dictionary, considering spatial (FSF-weighted-) neighborhood, evaluated on 1 observation.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    
+    <span class="n">S</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">liste_vec</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="c"># cette grandeur est sans marge, donc varie selon taille_f</span>
+
+    <span class="n">Prod</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">liste_vec</span><span class="p">,</span> <span class="n">D_3d_unip</span><span class="p">)</span>         <span class="c"># (2304, 200)</span>
+
+    <span class="n">Ind</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">Prod</span><span class="p">,</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>                <span class="c"># (2304,)</span>
+
+    <span class="n">Valmax</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">amax</span><span class="p">(</span><span class="n">Prod</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>              <span class="c"># (2304,)</span>
+
+     <span class="c"># On boucle sur chacun des points de la region de detection initiale.</span>
+    <span class="n">range1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">S</span><span class="o">*</span><span class="n">S</span><span class="p">)</span><span class="o">*</span><span class="p">(</span><span class="n">liste_msk1d</span><span class="o">==</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">nb_test</span> <span class="o">=</span> <span class="p">(</span><span class="n">liste_msk1d</span><span class="o">==</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>
+
+    <span class="n">X_b_tout</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">nb_test</span><span class="p">,</span><span class="n">liste_vec</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span> <span class="p">)</span> 
+    <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">itertools</span><span class="o">.</span><span class="n">ifilter</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span><span class="n">range1</span><span class="p">):</span>
+
+        <span class="n">X_b_tout</span><span class="p">[</span><span class="n">i</span><span class="p">,:]</span> <span class="o">=</span> <span class="n">D_3d_unip</span><span class="p">[:,</span> <span class="n">Ind</span><span class="p">[</span><span class="n">s</span><span class="p">]]</span> <span class="o">*</span> <span class="n">Valmax</span><span class="p">[</span><span class="n">s</span><span class="p">]</span>
+        <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span>   
+        
+    <span class="k">return</span> <span class="n">X_b_tout</span><span class="p">,</span><span class="n">Ind</span>
+    
+<span class="k">def</span> <span class="nf">whitening_masked</span><span class="p">(</span><span class="n">Y</span><span class="p">,</span><span class="n">X_sig</span><span class="p">,</span><span class="n">F</span><span class="p">,</span><span class="n">S</span><span class="p">,</span><span class="n">W</span><span class="p">,</span><span class="n">P</span><span class="p">):</span></div>
+<div class="viewcode-block" id="whitening_masked"><a class="viewcode-back" href="../extended.html#extended_detection_pose.whitening_masked">[docs]</a>    <span class="sd">&quot;&quot;&quot; </span>
+<span class="sd">    Spectral whitening while ignoring a masked region.</span>
+<span class="sd">    </span>
+<span class="sd">    :param ndarray Y: Hyperspectral, multiple observation datacube. Shape: (spatial,spatial,spectral,observation).    </span>
+<span class="sd">    :param ndarray X_sig: region to ignore in the whitening. Shape: (spatial,spatial).</span>
+<span class="sd">    :param ndarray F: FSF to consider in the 3D repliation process.</span>
+<span class="sd">    :param int S: spatial size (Y is supposed isotropic, *i.e.* square).</span>
+<span class="sd">    :param int W: number of spectral band.</span>
+<span class="sd">    :param int P: number of observation</span>
+<span class="sd">    </span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    
+    
+    
+    <span class="k">if</span> <span class="n">P</span> <span class="o">!=</span> <span class="mi">1</span> <span class="p">:</span> 
+    <span class="c"># When there are multiple observations, the whitening is done by observation.</span>
+        <span class="n">Y_tout_snr_blanc</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="n">Y</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">P</span><span class="p">):</span>
+            <span class="n">Y_pose</span> <span class="o">=</span> <span class="n">Y</span><span class="p">[:,:,:,</span><span class="n">p</span><span class="p">]</span>   
+
+            <span class="c"># reshaping the datacube into an array.</span>
+            <span class="n">liste_vec</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">Y_pose</span><span class="p">,(</span><span class="n">S</span><span class="o">*</span><span class="n">S</span><span class="p">,</span><span class="n">Y_pose</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">]))</span>
+            <span class="n">liste_msk1d</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">X_sig</span><span class="p">,</span> <span class="n">S</span><span class="o">*</span><span class="n">S</span><span class="p">)</span>    
+            <span class="n">liste_msk</span> <span class="o">=</span>  <span class="n">np</span><span class="o">.</span><span class="n">tile</span><span class="p">(</span><span class="n">liste_msk1d</span><span class="p">[:,</span><span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">],(</span><span class="mi">1</span><span class="p">,</span><span class="n">W</span><span class="p">))</span>
+            
+            <span class="n">liste_ext</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ma</span><span class="o">.</span><span class="n">masked_array</span><span class="p">(</span><span class="n">liste_vec</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">invert</span><span class="p">(</span><span class="n">liste_msk</span><span class="o">==</span><span class="mi">0</span><span class="p">))</span>
+            <span class="n">liste_ext</span> <span class="o">=</span> <span class="n">ma</span><span class="o">.</span><span class="n">compress_rowcols</span><span class="p">(</span><span class="n">liste_ext</span><span class="p">,</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>   
+            
+            <span class="c"># Covariance estimation on the averaged datacube.</span>
+            <span class="n">Sig_init</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">cov</span><span class="p">(</span><span class="n">liste_ext</span><span class="p">,</span><span class="n">rowvar</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+            <span class="n">Sig_inv_dem</span> <span class="o">=</span> <span class="n">la</span><span class="o">.</span><span class="n">inv</span><span class="p">(</span><span class="n">la</span><span class="o">.</span><span class="n">sqrtm</span><span class="p">(</span><span class="n">Sig_init</span><span class="p">))</span>
+            
+            <span class="c"># Actual whitening:</span>
+            <span class="n">liste_blanc</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">liste_vec</span><span class="p">,</span><span class="n">Sig_inv_dem</span><span class="p">)</span>
+            
+            <span class="c"># Reshaping the whitened array into a datacube.</span>
+            <span class="n">Y_tout_snr_blanc</span><span class="p">[:,:,:,</span><span class="n">p</span><span class="p">]</span>  <span class="o">=</span>  <span class="n">np</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">liste_blanc</span><span class="p">,(</span><span class="n">S</span><span class="p">,</span><span class="n">S</span><span class="p">,</span><span class="n">W</span><span class="p">))</span>
+            
+        <span class="n">Y_src</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">Y_tout_snr_blanc</span><span class="p">[:,:,:,:],(</span><span class="n">S</span><span class="p">,</span><span class="n">S</span><span class="p">,</span><span class="n">W</span><span class="o">*</span><span class="n">P</span><span class="p">))</span>
+        
+        
+        <span class="c"># Now we process data averaged over multiple observations, which will </span>
+        <span class="c"># used altogether with the multiple observation data.</span>
+        <span class="k">if</span> <span class="n">Y</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">4</span><span class="p">:</span>
+            <span class="n">Y_src_unip</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">Y</span><span class="p">[:,:,:,:],</span><span class="n">axis</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">Y_src_unip</span> <span class="o">=</span> <span class="n">Y</span>
+        
+        <span class="n">liste_vec</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">Y_src_unip</span><span class="p">,(</span><span class="n">S</span><span class="o">*</span><span class="n">S</span><span class="p">,</span><span class="n">Y_src_unip</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">]))</span>
+        <span class="n">liste_msk1d</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">X_sig</span><span class="p">,</span> <span class="n">S</span><span class="o">*</span><span class="n">S</span><span class="p">)</span>    
+        <span class="n">liste_msk</span> <span class="o">=</span>  <span class="n">np</span><span class="o">.</span><span class="n">tile</span><span class="p">(</span><span class="n">liste_msk1d</span><span class="p">[:,</span><span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">],(</span><span class="mi">1</span><span class="p">,</span><span class="n">W</span><span class="p">))</span>
+        
+        <span class="n">liste_ext</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ma</span><span class="o">.</span><span class="n">masked_array</span><span class="p">(</span><span class="n">liste_vec</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">invert</span><span class="p">(</span><span class="n">liste_msk</span><span class="o">==</span><span class="mi">0</span><span class="p">))</span>
+        <span class="n">liste_ext</span> <span class="o">=</span> <span class="n">ma</span><span class="o">.</span><span class="n">compress_rowcols</span><span class="p">(</span><span class="n">liste_ext</span><span class="p">,</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>            
+        
+        <span class="n">Sig_init</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">cov</span><span class="p">(</span><span class="n">liste_ext</span><span class="p">,</span><span class="n">rowvar</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="n">Sig_inv_dem</span> <span class="o">=</span> <span class="n">la</span><span class="o">.</span><span class="n">inv</span><span class="p">(</span><span class="n">la</span><span class="o">.</span><span class="n">sqrtm</span><span class="p">(</span><span class="n">Sig_init</span><span class="p">))</span>
+        <span class="n">liste_blanc</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">liste_vec</span><span class="p">,</span><span class="n">Sig_inv_dem</span><span class="p">)</span>
+        <span class="n">Y_src_unip</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">liste_blanc</span><span class="p">,(</span><span class="n">S</span><span class="p">,</span><span class="n">S</span><span class="p">,</span><span class="n">W</span><span class="p">))</span>        
+
+        <span class="n">D_unip</span> <span class="o">=</span> <span class="n">dp</span><span class="o">.</span><span class="n">gen_dic</span><span class="p">(</span><span class="n">W</span><span class="p">,</span> <span class="n">P</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">Y_3d_unip</span><span class="p">,</span> <span class="n">D_3d_unip</span> <span class="o">=</span> <span class="n">dp</span><span class="o">.</span><span class="n">replique_3d_pose</span><span class="p">(</span><span class="n">Y_src_unip</span><span class="p">,</span> <span class="n">F</span><span class="p">,</span><span class="n">D_unip</span><span class="p">,</span> <span class="n">P</span> <span class="o">=</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="n">D_3d_unip</span> <span class="o">=</span> <span class="n">D_3d_unip</span><span class="p">[:</span><span class="n">Y_3d_unip</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">],:]</span> 
+        
+        <span class="n">liste_vec_unip</span> <span class="o">=</span> <span class="n">Y_3d_unip</span><span class="o">.</span><span class="n">reshape</span><span class="p">((</span><span class="n">Y_3d_unip</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">**</span><span class="mi">2</span><span class="p">,</span> <span class="n">Y_3d_unip</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">]))</span>
+        
+    <span class="k">else</span><span class="p">:</span> 
+        <span class="c"># One observation. The process is the same as above.</span>
+        <span class="k">if</span> <span class="n">Y</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">4</span><span class="p">:</span>
+            <span class="n">Y_src</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">Y</span><span class="p">[:,:,:,:],</span><span class="n">axis</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">Y_src</span> <span class="o">=</span> <span class="n">Y</span>
+        
+        <span class="n">liste_vec</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">Y_src</span><span class="p">,(</span><span class="n">S</span><span class="o">*</span><span class="n">S</span><span class="p">,</span><span class="n">Y_src</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">]))</span>
+        <span class="n">liste_msk1d</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">X_sig</span><span class="p">,</span> <span class="n">S</span><span class="o">*</span><span class="n">S</span><span class="p">)</span>    
+        <span class="n">liste_msk</span> <span class="o">=</span>  <span class="n">np</span><span class="o">.</span><span class="n">tile</span><span class="p">(</span><span class="n">liste_msk1d</span><span class="p">[:,</span><span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">],(</span><span class="mi">1</span><span class="p">,</span><span class="n">W</span><span class="p">))</span>
+        
+        <span class="n">liste_ext</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ma</span><span class="o">.</span><span class="n">masked_array</span><span class="p">(</span><span class="n">liste_vec</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">invert</span><span class="p">(</span><span class="n">liste_msk</span><span class="o">==</span><span class="mi">0</span><span class="p">))</span>
+        <span class="n">liste_ext</span> <span class="o">=</span> <span class="n">ma</span><span class="o">.</span><span class="n">compress_rowcols</span><span class="p">(</span><span class="n">liste_ext</span><span class="p">,</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>            
+        
+        <span class="n">Sig_init</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">cov</span><span class="p">(</span><span class="n">liste_ext</span><span class="p">,</span><span class="n">rowvar</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="n">Sig_inv_dem</span> <span class="o">=</span> <span class="n">la</span><span class="o">.</span><span class="n">inv</span><span class="p">(</span><span class="n">la</span><span class="o">.</span><span class="n">sqrtm</span><span class="p">(</span><span class="n">Sig_init</span><span class="p">))</span>
+        <span class="n">liste_blanc</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">liste_vec</span><span class="p">,</span><span class="n">Sig_inv_dem</span><span class="p">)</span>
+        <span class="n">Y_src</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">liste_blanc</span><span class="p">,(</span><span class="n">S</span><span class="p">,</span><span class="n">S</span><span class="p">,</span><span class="n">W</span><span class="p">))</span>
+        
+        <span class="n">liste_vec_unip</span> <span class="o">=</span> <span class="mi">0</span>    
+        <span class="n">D_3d_unip</span> <span class="o">=</span> <span class="mi">0</span>
+        
+    <span class="k">return</span> <span class="n">Y_src</span><span class="p">,</span> <span class="n">liste_vec_unip</span><span class="p">,</span> <span class="n">D_3d_unip</span>
+
+
+<span class="k">def</span> <span class="nf">GLR_as_pose</span><span class="p">(</span><span class="n">Y</span><span class="p">,</span> <span class="n">X_init</span><span class="p">,</span> <span class="n">X_sig</span><span class="p">,</span> <span class="n">P</span><span class="p">,</span> <span class="n">diag</span><span class="p">,</span> <span class="n">pfa_faint</span><span class="p">,</span> <span class="n">FWHM</span><span class="p">,</span> <span class="n">taille_f</span><span class="p">,</span> <span class="n">beta</span><span class="p">,</span> <span class="n">ksi</span> <span class="p">):</span>   </div>
+<div class="viewcode-block" id="GLR_as_pose"><a class="viewcode-back" href="../extended.html#extended_detection_pose.GLR_as_pose">[docs]</a>    <span class="sd">&quot;&quot;&quot; </span>
+<span class="sd">    GLR test with similarity/sparsity constraint.</span>
+<span class="sd">    </span>
+<span class="sd">    :param ndarray Y: Hyperspectral, multiple observation datacube. Shape: (spatial,spatial,spectral,observation).    </span>
+<span class="sd">    :param ndarray X_init: Initial detection map to consider for similarity.</span>
+<span class="sd">    :param ndarray X_sig: map to consider for covariance estimation. May be identical to X_init.</span>
+<span class="sd">    :param int P: number of observation.</span>
+<span class="sd">    :param bool diag: set if the estimated covariance matrix sould be constrained to be diagonal.</span>
+<span class="sd">    :param float pfa_faint: target false alarm for the method.</span>
+<span class="sd">    :param float FWHM: Full Width at Half Maximum for the spatial FSF, in pixels.</span>
+<span class="sd">    :param int taille_f: size of the FSF window, in pixels.</span>
+<span class="sd">    :param float beta: parameter for the FSF description.</span>
+<span class="sd">    :param float ksi: test threshold.</span>
+<span class="sd">    </span>
+<span class="sd">    </span>
+<span class="sd">    :returns: **X** *(bool image)* - binary extended detection map.</span>
+<span class="sd">    :returns: **T** *(float image)* - continuous extended detection map (test statistic map).</span>
+<span class="sd">    :returns: **ind_2d** *(int image)* - indices of the best-fitted atoms from the dictionary.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    
+    <span class="c"># Dimensions</span>
+    <span class="n">S</span> <span class="o">=</span> <span class="n">Y</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">W</span> <span class="o">=</span> <span class="n">Y</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span>
+    
+    <span class="c"># Dictionnary</span>
+    <span class="n">D</span> <span class="o">=</span> <span class="n">dp</span><span class="o">.</span><span class="n">gen_dic</span><span class="p">(</span><span class="n">W</span><span class="p">,</span> <span class="n">P</span><span class="o">=</span><span class="n">P</span><span class="p">)</span>
+    <span class="c"># Field Spread Function</span>
+    <span class="n">F</span> <span class="o">=</span> <span class="n">dp</span><span class="o">.</span><span class="n">Moffat</span><span class="p">(</span><span class="n">taille_f</span><span class="p">,</span> <span class="n">FWHM</span><span class="p">,</span><span class="n">beta</span><span class="p">)</span>
+    
+    <span class="n">marge</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">taille_f</span><span class="o">/</span><span class="mi">2</span><span class="p">)</span>
+    
+    <span class="c"># 1) Data whitening while ignoring a masked region:</span>
+    <span class="n">Y_src</span><span class="p">,</span> <span class="n">liste_vec_unip</span><span class="p">,</span> <span class="n">D_3d_unip</span> <span class="o">=</span> <span class="n">whitening_masked</span><span class="p">(</span><span class="n">Y</span><span class="p">,</span><span class="n">X_sig</span><span class="p">,</span><span class="n">F</span><span class="p">,</span><span class="n">S</span><span class="p">,</span><span class="n">W</span><span class="p">,</span><span class="n">P</span><span class="p">)</span>
+    
+    <span class="c"># 2) Data reshaping for spatial, observation features.</span>
+    <span class="n">Y_3d</span><span class="p">,</span> <span class="n">D_3d</span> <span class="o">=</span> <span class="n">dp</span><span class="o">.</span><span class="n">replique_3d_pose</span><span class="p">(</span><span class="n">Y_src</span><span class="p">,</span> <span class="n">F</span><span class="p">,</span><span class="n">D</span><span class="p">,</span> <span class="n">P</span> <span class="o">=</span> <span class="n">P</span><span class="p">)</span>    
+
+    <span class="c"># 3) Actual detection</span>
+
+    <span class="c"># reshaping into a 2D array of appropriate size</span>
+    <span class="n">liste_vec</span> <span class="o">=</span> <span class="n">Y_3d</span><span class="o">.</span><span class="n">reshape</span><span class="p">((</span><span class="n">Y_3d</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">**</span><span class="mi">2</span><span class="p">,</span> <span class="n">Y_3d</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">]))</span>
+    <span class="n">liste_msk1d</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">X_init</span><span class="p">[</span><span class="n">marge</span><span class="p">:</span><span class="n">S</span><span class="o">-</span><span class="n">marge</span><span class="p">,</span><span class="n">marge</span><span class="p">:</span><span class="n">S</span><span class="o">-</span><span class="n">marge</span><span class="p">],</span> <span class="p">(</span><span class="n">S</span><span class="o">-</span><span class="mi">2</span><span class="o">*</span><span class="n">marge</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>  
+
+    <span class="c"># MLE estimates from the initially detected region</span>
+    <span class="k">if</span> <span class="n">P</span> <span class="o">==</span><span class="mi">1</span><span class="p">:</span>
+        <span class="n">X_b_tout</span><span class="p">,</span><span class="n">Ind</span> <span class="o">=</span> <span class="n">estimer_xb</span><span class="p">(</span><span class="n">liste_vec</span><span class="p">,</span> <span class="n">liste_msk1d</span><span class="p">,</span><span class="n">D_3d</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c"># The estimates are on the observation-averaged datacube.</span>
+        <span class="n">X_b_tout</span><span class="p">,</span><span class="n">Ind</span> <span class="o">=</span> <span class="n">estimer_xb</span><span class="p">(</span><span class="n">liste_vec_unip</span><span class="p">,</span> <span class="n">liste_msk1d</span><span class="p">,</span><span class="n">D_3d_unip</span><span class="p">)</span>
+        
+        <span class="c"># Estimates have to be reshaped:</span>
+        <span class="n">X_b_tout_new</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">X_b_tout</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">P</span> <span class="o">*</span> <span class="n">X_b_tout</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
+        
+        <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">P</span><span class="p">):</span>
+            <span class="n">X_b_tout_new</span><span class="p">[:,</span><span class="n">p</span><span class="p">::</span><span class="n">P</span><span class="p">]</span> <span class="o">=</span> <span class="n">X_b_tout</span>
+            
+        <span class="n">X_b_tout</span> <span class="o">=</span> <span class="n">X_b_tout_new</span>
+        
+        
+    <span class="c"># Indices of MLE 1-soarse estimtes in the dictionary. </span>
+    <span class="n">taille_ind</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">Ind</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span>
+    <span class="n">ind_2d</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">Ind</span><span class="p">,(</span><span class="n">taille_ind</span><span class="p">,</span><span class="n">taille_ind</span><span class="p">))</span> 
+    <span class="n">ind_2d_new</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">S</span><span class="p">,</span><span class="n">S</span><span class="p">));</span> <span class="n">ind_2d_new</span><span class="p">[</span><span class="n">marge</span><span class="p">:</span><span class="n">S</span><span class="o">-</span><span class="n">marge</span><span class="p">,</span><span class="n">marge</span><span class="p">:</span><span class="n">S</span><span class="o">-</span><span class="n">marge</span><span class="p">]</span> <span class="o">=</span> <span class="n">ind_2d</span><span class="p">;</span> <span class="n">ind_2d</span> <span class="o">=</span> <span class="n">ind_2d_new</span>
+
+
+
+    <span class="c"># The covariance matrix is assumed (at least) block-diagonal.</span>
+    <span class="c"># Therefore, to avoid manipulating large array the calculus are done by</span>
+    <span class="c"># blocks.</span>
+    <span class="n">nb_lambda</span> <span class="o">=</span> <span class="n">W</span> 
+    <span class="n">pas</span> <span class="o">=</span> <span class="n">taille_f</span><span class="o">**</span><span class="mi">2</span>
+    <span class="n">contrib</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="n">sum_denom</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">sum_numer</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">for</span> <span class="n">pl</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">P</span><span class="o">*</span> <span class="n">nb_lambda</span><span class="p">):</span>
+            <span class="c"># Block beginning and end.</span>
+            <span class="n">deb</span> <span class="o">=</span> <span class="n">pl</span> <span class="o">*</span> <span class="n">pas</span>      
+            <span class="n">fin</span> <span class="o">=</span> <span class="p">(</span><span class="n">pl</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="n">pas</span>  
+            
+            <span class="c"># Arrays to be manipulated at this step.</span>
+            <span class="n">Y_pl</span> <span class="o">=</span> <span class="n">liste_vec</span><span class="p">[:,</span><span class="n">deb</span><span class="p">:</span><span class="n">fin</span><span class="p">]</span> 
+            <span class="n">X_pl</span> <span class="o">=</span> <span class="n">X_b_tout</span><span class="p">[:,</span><span class="n">deb</span><span class="p">:</span><span class="n">fin</span><span class="p">]</span> 
+
+            <span class="k">if</span> <span class="n">diag</span> <span class="o">==</span> <span class="bp">True</span> <span class="p">:</span>
+                <span class="c"># Here we assume the covariance matrix to be diagonal</span>
+                
+                <span class="c"># Numerators and denominators for the current block.</span>
+                <span class="n">numer_courant</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">Y_pl</span><span class="p">,</span>  <span class="n">X_pl</span><span class="o">.</span><span class="n">T</span> <span class="p">)</span>
+
+                <span class="n">denom_courant</span> <span class="o">=</span>  <span class="n">np</span><span class="o">.</span><span class="n">diag</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">X_pl</span><span class="p">,</span>  <span class="n">X_pl</span><span class="o">.</span><span class="n">T</span><span class="p">))</span>
+                
+                
+                <span class="c"># Values are added to the total numerator, denominator values.</span>
+                <span class="n">sum_numer</span> <span class="o">+=</span> <span class="n">numer_courant</span>
+                <span class="n">sum_denom</span> <span class="o">+=</span> <span class="n">denom_courant</span>
+                
+            <span class="k">else</span> <span class="p">:</span>
+                <span class="c"># Here we assume the covariance matrix is block diagonal.</span>
+                   
+                <span class="c"># Covariance matrix for the current block, and its inverse.</span>
+                <span class="n">Sigma_pl</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">cov</span><span class="p">(</span><span class="n">Y_pl</span><span class="p">,</span> <span class="n">rowvar</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>  
+                <span class="n">Sigma_pl_inv</span> <span class="o">=</span> <span class="n">la</span><span class="o">.</span><span class="n">inv</span><span class="p">(</span><span class="n">Sigma_pl</span><span class="p">)</span>
+                
+                <span class="n">Sig_inv_X</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">Sigma_pl_inv</span><span class="p">,</span><span class="n">X_pl</span><span class="o">.</span><span class="n">T</span><span class="p">)</span>
+                
+                <span class="c"># Numerators and denominators for the current block.</span>
+                <span class="n">numer_courant</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">Y_pl</span><span class="p">,</span>  <span class="n">Sig_inv_X</span> <span class="p">)</span>
+                <span class="n">denom_courant</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">diag</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">X_pl</span><span class="p">,</span>  <span class="n">Sig_inv_X</span><span class="p">))</span>
+                
+                <span class="c"># Values are added to the total numerator, denominator values.</span>
+                <span class="n">sum_numer</span> <span class="o">+=</span> <span class="n">numer_courant</span>
+                <span class="n">sum_denom</span> <span class="o">+=</span> <span class="n">denom_courant</span>         
+            
+    
+    <span class="c"># Total test statistic</span>
+    <span class="n">contrib</span> <span class="o">=</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">sum_numer</span><span class="o">**</span><span class="mi">2</span> <span class="o">/</span> <span class="n">sum_denom</span>    
+    
+    <span class="c"># Here we sum over the bright initial spectra set.</span>
+    <span class="n">val</span> <span class="o">=</span> <span class="n">contrib</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span> <span class="o">=</span> <span class="mi">1</span><span class="p">)</span> 
+    
+    <span class="c"># Actual thresholding, decision:</span>
+    <span class="n">dec</span> <span class="o">=</span> <span class="n">val</span> <span class="o">&gt;</span> <span class="n">ksi</span>
+    
+    <span class="c"># Reshaping into original dimensions.</span>
+    <span class="n">marge</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">taille_f</span><span class="o">/</span><span class="mi">2</span><span class="p">)</span>
+    <span class="n">T</span> <span class="o">=</span> <span class="n">val</span><span class="o">.</span><span class="n">reshape</span><span class="p">((</span><span class="n">S</span><span class="o">-</span><span class="mi">2</span><span class="o">*</span><span class="n">marge</span><span class="p">,</span><span class="n">S</span><span class="o">-</span><span class="mi">2</span><span class="o">*</span><span class="n">marge</span><span class="p">))</span>
+    <span class="n">X</span> <span class="o">=</span> <span class="n">dec</span><span class="o">.</span><span class="n">reshape</span><span class="p">((</span><span class="n">S</span><span class="o">-</span><span class="mi">2</span><span class="o">*</span><span class="n">marge</span><span class="p">,</span><span class="n">S</span><span class="o">-</span><span class="mi">2</span><span class="o">*</span><span class="n">marge</span><span class="p">))</span>    
+    
+    <span class="k">return</span> <span class="n">X</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">ind_2d</span>
+</pre></div></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">HEOLTH 1.3 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &copy; Copyright 2015, Jean-Baptiste Courbot.
+      Last updated on Dec 02, 2015.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.3.1.
+    </div>
+  </body>
+</html>

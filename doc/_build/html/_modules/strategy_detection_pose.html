@@ -1,0 +1,243 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>strategy_detection_pose &mdash; HEOLTH 1.3 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/classic.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '1.3',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="HEOLTH 1.3 documentation" href="../index.html" />
+    <link rel="up" title="Module code" href="index.html" /> 
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">HEOLTH 1.3 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for strategy_detection_pose</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="sd">This module gather the main package functions one can use elsewhere, *e.g.* in the demo.</span>
+
+
+<span class="sd">:author: Jean-Baptiste Courbot - jean-baptiste.courbot@univ-lyon1.fr</span>
+<span class="sd">:date: november 02, 2015</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="kn">as</span> <span class="nn">np</span> 
+<span class="kn">import</span> <span class="nn">scipy.stats</span> <span class="kn">as</span> <span class="nn">st</span>
+<span class="kn">import</span> <span class="nn">scipy.ndimage.morphology</span> <span class="kn">as</span> <span class="nn">morph</span>
+
+<span class="kn">import</span> <span class="nn">sys</span> 
+<span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="s">&#39;../lib&#39;</span><span class="p">)</span>
+<span class="kn">import</span> <span class="nn">initial_detection_pose</span> <span class="kn">as</span> <span class="nn">idp</span>
+<span class="kn">import</span> <span class="nn">extended_detection_pose</span> <span class="kn">as</span> <span class="nn">edp</span>
+
+
+<div class="viewcode-block" id="detection_initiale_pose"><a class="viewcode-back" href="../strategy.html#strategy_detection_pose.detection_initiale_pose">[docs]</a><span class="k">def</span> <span class="nf">detection_initiale_pose</span><span class="p">(</span><span class="n">Y</span><span class="p">,</span> <span class="n">P</span><span class="p">,</span> <span class="n">diag</span><span class="p">,</span> <span class="n">pfa_bright</span><span class="p">,</span> <span class="n">FWHM</span><span class="p">,</span> <span class="n">taille_f</span><span class="p">,</span> <span class="n">beta</span><span class="p">,</span> <span class="n">centre</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot; Initial Bright Source Detection.</span>
+<span class="sd">    </span>
+<span class="sd">    The detection is made through a sparsity-constrained GLR test, accounting </span>
+<span class="sd">    for the spatial neighborhood through the use of the spatial Field Spread </span>
+<span class="sd">    Function (FSF).</span>
+<span class="sd">    </span>
+<span class="sd">    See Paris, S.; Mary, D.; Ferrari, A., &quot;Detection Tests Using Sparse Models,</span>
+<span class="sd">    With Application to Hyperspectral Data,&quot; in *Signal Processing, IEEE </span>
+<span class="sd">    Transactions on* , vol.61, no.6, pp.1481-1494, March 15, 2013</span>
+<span class="sd">    doi: 10.1109/TSP.2013.2238533</span>
+<span class="sd">    </span>
+
+<span class="sd">    :param ndarray Y: Hyperspectral, multiple observation datacube. Shape: (spatial,spatial,spectral,observation).    </span>
+<span class="sd">    :param int P: number of observation</span>
+<span class="sd">    :param bool diag: set if the estimated covariance matrix sould be constrained to be diagonal</span>
+<span class="sd">    :param float pfa_bright: target false alarm for the method</span>
+<span class="sd">    :param float FWHM: Full Width at Half Maximum for the spatial FSF, in pixels.</span>
+<span class="sd">    :param int taille_f: size of the FSF window, in pixels.</span>
+<span class="sd">    :param float beta: parameter for the FSF description.</span>
+<span class="sd">    :param ndarray centre: spatial location of the source of interest.</span>
+
+<span class="sd">    :returns: **X_init** *(bool image)* - binary initial detection map</span>
+<span class="sd">    :returns: **val_init** *(float image)* - continuous initial detection map (test statistic map)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c"># Some useful parameters:</span>
+    <span class="n">S</span> <span class="o">=</span> <span class="n">Y</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+    <span class="n">marge</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">taille_f</span><span class="o">/</span><span class="mi">2</span><span class="p">)</span>
+    
+    <span class="c"># GLR with sparsity constraints:</span>
+    <span class="c">#x,val_init = idp.GLRT_1s_pose(Y,FWHM=FWHM,taille_f=taille_f, beta=beta, pfa = pfa_bright, P=P,ksi = 5, approx=diag )</span>
+    <span class="n">x</span><span class="p">,</span><span class="n">val_init</span> <span class="o">=</span> <span class="n">idp</span><span class="o">.</span><span class="n">GLRT_1s_pose</span><span class="p">(</span><span class="n">Y</span><span class="p">,</span> <span class="n">P</span><span class="p">,</span> <span class="n">diag</span><span class="p">,</span> <span class="n">pfa_bright</span><span class="p">,</span> <span class="n">FWHM</span><span class="p">,</span> <span class="n">taille_f</span><span class="p">,</span> <span class="n">beta</span><span class="p">,</span> <span class="n">ksi</span> <span class="o">=</span> <span class="mi">5</span> <span class="p">)</span>
+    
+    
+    <span class="c"># threshold rough evaluation:</span>
+    <span class="n">mean_est</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">median</span><span class="p">(</span><span class="n">val_init</span><span class="p">)</span>
+    <span class="n">std_est</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">std</span><span class="p">(</span><span class="n">val_init</span><span class="p">)</span>
+    <span class="n">ksi_init</span> <span class="o">=</span> <span class="n">st</span><span class="o">.</span><span class="n">norm</span><span class="o">.</span><span class="n">isf</span><span class="p">(</span><span class="n">pfa_bright</span><span class="p">,</span> <span class="n">loc</span><span class="o">=</span><span class="n">mean_est</span><span class="p">,</span><span class="n">scale</span> <span class="o">=</span> <span class="n">std_est</span><span class="p">)</span>
+    
+    <span class="c"># casting the results in the good shape.</span>
+    <span class="n">val_init_new</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">S</span><span class="p">,</span><span class="n">S</span><span class="p">))</span> <span class="p">;</span> <span class="n">val_init_new</span><span class="p">[</span><span class="n">marge</span><span class="p">:</span><span class="n">S</span><span class="o">-</span><span class="n">marge</span><span class="p">,</span><span class="n">marge</span><span class="p">:</span><span class="n">S</span><span class="o">-</span><span class="n">marge</span><span class="p">]</span> <span class="o">=</span> <span class="n">val_init</span> <span class="p">;</span> <span class="n">val_init</span> <span class="o">=</span> <span class="n">val_init_new</span>
+    <span class="n">X_init</span> <span class="o">=</span> <span class="n">val_init</span><span class="o">&gt;</span><span class="n">ksi_init</span>
+    
+    <span class="c"># Removal of pixels non-connex to the central ones.</span>
+    <span class="n">center</span> <span class="o">=</span> <span class="n">centre</span>
+    <span class="n">seed</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">shape</span> <span class="o">=</span> <span class="n">X_init</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="p">;</span> 
+    <span class="n">seed</span><span class="p">[</span><span class="n">center</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">center</span><span class="p">[</span><span class="mi">1</span><span class="p">]]</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span> 
+        
+    <span class="n">X_init_new</span> <span class="o">=</span> <span class="n">morph</span><span class="o">.</span><span class="n">binary_propagation</span><span class="p">(</span><span class="n">seed</span><span class="p">,</span> <span class="n">mask</span> <span class="o">=</span> <span class="n">X_init</span><span class="p">);</span> <span class="n">X_init</span> <span class="o">=</span> <span class="n">X_init_new</span>
+    
+    <span class="k">return</span> <span class="n">X_init</span><span class="p">,</span> <span class="n">val_init</span>
+</div>
+<div class="viewcode-block" id="detection_etendue_pose"><a class="viewcode-back" href="../strategy.html#strategy_detection_pose.detection_etendue_pose">[docs]</a><span class="k">def</span> <span class="nf">detection_etendue_pose</span><span class="p">(</span><span class="n">Y</span><span class="p">,</span> <span class="n">X_init</span><span class="p">,</span> <span class="n">X_sig</span><span class="p">,</span> <span class="n">P</span><span class="p">,</span> <span class="n">diag</span><span class="p">,</span> <span class="n">pfa_faint</span><span class="p">,</span> <span class="n">FWHM</span><span class="p">,</span> <span class="n">taille_f</span><span class="p">,</span> <span class="n">beta</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot; Extended Faint Source Detection.</span>
+<span class="sd">    </span>
+<span class="sd">    The detection is made through a sparsity-constrained GLR test, accounting </span>
+<span class="sd">    for the spatial neighborhood through the use of the spatial Field Spread </span>
+<span class="sd">    Function (FSF).</span>
+<span class="sd">    </span>
+<span class="sd">    The threshold :math:`\\xi` is set and provide a target maximum probability of false alarm. </span>
+<span class="sd">    </span>
+<span class="sd">    See Courbot, J.-B.; Mazet, V.; Monfrini,E.; Collet, C, *Detection of Faint </span>
+<span class="sd">    Extended Sources in Hyperspectral Data and Application to HDF-S MUSE </span>
+<span class="sd">    Observation*, ICASSP 2016, *Submitted*.</span>
+
+<span class="sd">    :param ndarray Y: Hyperspectral, multiple observation datacube. Shape: (spatial,spatial,spectral,observation).    </span>
+<span class="sd">    :param bool_ndarray X_init: Initial detection map for the reference estimation.    </span>
+<span class="sd">    :param bool_ndarray X_sig: map on which the covariance matrix is estimated (may be identical to X_init).</span>
+<span class="sd">    :param int P: number of observation.</span>
+<span class="sd">    :param bool diag: set if the estimated covariance matrix sould be constrained to be diagonal.</span>
+<span class="sd">    :param float pfa_faint: target maximum false alarm for the method.</span>
+<span class="sd">    :param float FWHM: Full Width at Half Maximum for the spatial FSF, in pixels.</span>
+<span class="sd">    :param int taille_f: size of the FSF window, in pixels.</span>
+<span class="sd">    :param float beta: parameter for the FSF description.</span>
+<span class="sd">    </span>
+
+<span class="sd">    :returns: **X_ext** *(bool image)* - binary extended detection map</span>
+<span class="sd">    :returns: **val_ext** *(float image)* - continuous extended detection map (test statistic map)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    
+    <span class="c"># Some useful parameters:</span>
+    <span class="n">S</span> <span class="o">=</span> <span class="n">Y</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+    <span class="n">marge</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">taille_f</span><span class="o">/</span><span class="mi">2</span><span class="p">)</span>
+
+    
+    <span class="c">#x,val_ext,ests = edp.GLR_as_pose(Y,X_init,X_sig,taille_f,FWHM,test_3d, beta, pfa_faint, P=P, diag=diag, ksi=5 )</span>
+    <span class="n">x</span><span class="p">,</span><span class="n">val_ext</span><span class="p">,</span><span class="n">ests</span> <span class="o">=</span> <span class="n">edp</span><span class="o">.</span><span class="n">GLR_as_pose</span><span class="p">(</span><span class="n">Y</span><span class="p">,</span> <span class="n">X_init</span><span class="p">,</span> <span class="n">X_sig</span><span class="p">,</span> <span class="n">P</span><span class="p">,</span> <span class="n">diag</span><span class="p">,</span> <span class="n">pfa_faint</span><span class="p">,</span> <span class="n">FWHM</span><span class="p">,</span> <span class="n">taille_f</span><span class="p">,</span> <span class="n">beta</span><span class="p">,</span> <span class="n">ksi</span><span class="o">=</span><span class="mi">5</span> <span class="p">)</span>
+    <span class="c"># Threshold corresponding to the maximum false alarm probability</span>
+    <span class="n">ksi_ext</span> <span class="o">=</span> <span class="n">st</span><span class="o">.</span><span class="n">chi2</span><span class="o">.</span><span class="n">isf</span><span class="p">(</span><span class="n">pfa_faint</span><span class="p">,</span> <span class="n">df</span> <span class="o">=</span> <span class="n">X_init</span><span class="o">.</span><span class="n">sum</span><span class="p">())</span> 
+    
+    <span class="c"># casting the results in the good shape.</span>
+    <span class="n">val_ext_new</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">S</span><span class="p">,</span><span class="n">S</span><span class="p">))</span> <span class="p">;</span> <span class="n">val_ext_new</span><span class="p">[</span><span class="n">marge</span><span class="p">:</span><span class="n">S</span><span class="o">-</span><span class="n">marge</span><span class="p">,</span><span class="n">marge</span><span class="p">:</span><span class="n">S</span><span class="o">-</span><span class="n">marge</span><span class="p">]</span> <span class="o">=</span> <span class="n">val_ext</span> <span class="p">;</span> <span class="n">val_ext</span> <span class="o">=</span> <span class="n">val_ext_new</span>
+    
+    <span class="c"># actual thresholding</span>
+    <span class="n">X_ext</span> <span class="o">=</span> <span class="n">val_ext</span> <span class="o">&gt;</span> <span class="n">ksi_ext</span>    
+    
+    <span class="k">return</span> <span class="n">X_ext</span><span class="p">,</span> <span class="n">val_ext</span><span class="p">,</span> <span class="n">ests</span>
+    
+    </div>
+<div class="viewcode-block" id="detection_strategy"><a class="viewcode-back" href="../strategy.html#strategy_detection_pose.detection_strategy">[docs]</a><span class="k">def</span> <span class="nf">detection_strategy</span><span class="p">(</span><span class="n">Y</span><span class="p">,</span> <span class="n">P</span><span class="p">,</span> <span class="n">diag</span><span class="p">,</span> <span class="n">pfa_bright</span><span class="p">,</span> <span class="n">pfa_faint</span><span class="p">,</span> <span class="n">FWHM</span><span class="p">,</span> <span class="n">taille_f</span><span class="p">,</span> <span class="n">beta</span><span class="p">,</span><span class="n">centre</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot; Complete Detection Strategy.</span>
+<span class="sd">    </span>
+<span class="sd">    The method relies on:</span>
+
+<span class="sd">    #. an initial bright source unsupervised detection. </span>
+<span class="sd">    #. a faint source detection accounting for similarity with the initial detection. </span>
+
+<span class="sd">    :param ndarray Y: Hyperspectral, multiple observation datacube. Shape: (spatial,spatial,spectral,observation).    </span>
+<span class="sd">    :param int P: number of observation</span>
+<span class="sd">    :param bool diag: set if the estimated covariance matrix sould be constrained to be diagonal</span>
+<span class="sd">    :param float pfa_bright: target false alarm for the method</span>
+<span class="sd">    :param float FWHM: Full Width at Half Maximum for the spatial FSF, in pixels.</span>
+<span class="sd">    :param int taille_f: size of the FSF window, in pixels.</span>
+<span class="sd">    :param float beta: parameter for the FSF description.</span>
+<span class="sd">    :param ndarray centre: spatial location of the source of interest.</span>
+<span class="sd">    </span>
+<span class="sd">    </span>
+<span class="sd">    </span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c"># ici on peut choisir entre une strategie completement multi-pose ou semi-multi-pose</span>
+    <span class="n">X_init</span><span class="p">,</span> <span class="n">val_init</span> <span class="o">=</span> <span class="n">detection_initiale_pose</span><span class="p">(</span><span class="n">Y</span><span class="p">,</span> <span class="n">P</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">diag</span><span class="o">=</span><span class="n">diag</span><span class="p">,</span> <span class="n">pfa_bright</span><span class="o">=</span><span class="n">pfa_bright</span><span class="p">,</span> <span class="n">FWHM</span><span class="o">=</span><span class="n">FWHM</span><span class="p">,</span> <span class="n">taille_f</span><span class="o">=</span><span class="n">taille_f</span><span class="p">,</span> <span class="n">beta</span><span class="o">=</span><span class="n">beta</span><span class="p">,</span><span class="n">centre</span><span class="o">=</span><span class="n">centre</span><span class="p">)</span>
+    
+
+    
+    <span class="n">X_ext_1</span><span class="p">,</span> <span class="n">val_ext_1</span><span class="p">,</span> <span class="n">ests</span> <span class="o">=</span> <span class="n">detection_etendue_pose</span><span class="p">(</span><span class="n">Y</span><span class="p">,</span> <span class="n">X_init</span><span class="p">,</span><span class="n">X_init</span><span class="p">,</span> <span class="n">P</span><span class="o">=</span><span class="n">P</span><span class="p">,</span> <span class="n">diag</span><span class="o">=</span><span class="n">diag</span><span class="p">,</span> <span class="n">pfa_faint</span><span class="o">=</span><span class="n">pfa_faint</span><span class="p">,</span> <span class="n">FWHM</span><span class="o">=</span><span class="n">FWHM</span><span class="p">,</span> <span class="n">taille_f</span><span class="o">=</span><span class="n">taille_f</span><span class="p">,</span> <span class="n">beta</span><span class="o">=</span><span class="n">beta</span><span class="p">)</span>
+    
+    <span class="k">return</span> <span class="n">X_ext_1</span><span class="p">,</span> <span class="n">val_ext_1</span><span class="p">,</span> <span class="n">ests</span><span class="p">,</span> <span class="n">X_init</span><span class="p">,</span> <span class="n">val_init</span></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">HEOLTH 1.3 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &copy; Copyright 2015, Jean-Baptiste Courbot.
+      Last updated on Dec 02, 2015.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.3.1.
+    </div>
+  </body>
+</html>

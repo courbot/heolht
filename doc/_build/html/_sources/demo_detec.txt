@@ -1,0 +1,6 @@
+Detection Strategy Demonstration
+********************************
+
+
+..  automodule:: demo_detection
+	:members:

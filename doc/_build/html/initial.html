@@ -1,0 +1,191 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Initial Detection &mdash; HEOLTH 1.3 documentation</title>
+    
+    <link rel="stylesheet" href="_static/classic.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    './',
+        VERSION:     '1.3',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="HEOLTH 1.3 documentation" href="index.html" />
+    <link rel="up" title="HEOLTH Package" href="heolth.html" />
+    <link rel="next" title="Detection Preprocessing" href="preprocessing.html" />
+    <link rel="prev" title="Extended Detection" href="extended.html" /> 
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="preprocessing.html" title="Detection Preprocessing"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="extended.html" title="Extended Detection"
+             accesskey="P">previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">HEOLTH 1.3 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="heolth.html" accesskey="U">HEOLTH Package</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="module-initial_detection_pose">
+<span id="initial-detection"></span><h1>Initial Detection<a class="headerlink" href="#module-initial_detection_pose" title="Permalink to this headline">¶</a></h1>
+<p>This module contains the sources for the bright unsupervised detection.</p>
+<p>The detection is made through a sparsity-constrained GLR test, accounting 
+for the spatial neighborhood through the use of the spatial Field Spread 
+Function (FSF).</p>
+<p>See Paris, S.; Mary, D.; Ferrari, A., &#8220;Detection Tests Using Sparse Models,
+With Application to Hyperspectral Data,&#8221; in * Signal Processing, IEEE 
+Transactions on * , vol.61, no.6, pp.1481-1494, March 15, 2013
+doi: 10.1109/TSP.2013.2238533</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">author:</th><td class="field-body">Jean-Baptiste Courbot - <a class="reference external" href="mailto:jean-baptiste&#46;courbot&#37;&#52;&#48;univ-lyon1&#46;fr">jean-baptiste<span>&#46;</span>courbot<span>&#64;</span>univ-lyon1<span>&#46;</span>fr</a></td>
+</tr>
+<tr class="field-even field"><th class="field-name">date:</th><td class="field-body">november 06 2015</td>
+</tr>
+</tbody>
+</table>
+<dl class="function">
+<dt id="initial_detection_pose.GLRT_1s_pose">
+<code class="descclassname">initial_detection_pose.</code><code class="descname">GLRT_1s_pose</code><span class="sig-paren">(</span><em>Y</em>, <em>P</em>, <em>diag</em>, <em>pfa_bright</em>, <em>FWHM</em>, <em>taille_f</em>, <em>beta</em>, <em>ksi</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/initial_detection_pose.html#GLRT_1s_pose"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#initial_detection_pose.GLRT_1s_pose" title="Permalink to this definition">¶</a></dt>
+<dd><p>GLR test with 1-sparsity constraint.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>Y</strong> (<em>ndarray</em>) &#8211; Hyperspectral, multiple observation datacube. Shape: (spatial,spatial,spectral,observation).</li>
+<li><strong>P</strong> (<em>int</em>) &#8211; number of observation</li>
+<li><strong>diag</strong> (<em>bool</em>) &#8211; set if the estimated covariance matrix sould be constrained to be diagonal</li>
+<li><strong>pfa_bright</strong> (<em>float</em>) &#8211; target false alarm for the method</li>
+<li><strong>FWHM</strong> (<em>float</em>) &#8211; Full Width at Half Maximum for the spatial FSF, in pixels.</li>
+<li><strong>taille_f</strong> (<em>int</em>) &#8211; size of the FSF window, in pixels.</li>
+<li><strong>beta</strong> (<em>float</em>) &#8211; parameter for the FSF description.</li>
+<li><strong>ksi</strong> (<em>float</em>) &#8211; test threshold.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first"><strong>X</strong> <em>(bool image)</em> - binary extended detection map</p>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last"><strong>T</strong> <em>(float image)</em> - continuous extended detection map (test statistic map)</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="initial_detection_pose.whitening">
+<code class="descclassname">initial_detection_pose.</code><code class="descname">whitening</code><span class="sig-paren">(</span><em>Y</em>, <em>S</em>, <em>W</em>, <em>P</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/initial_detection_pose.html#whitening"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#initial_detection_pose.whitening" title="Permalink to this definition">¶</a></dt>
+<dd><p>Standard spectral whitening.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>Y</strong> (<em>ndarray</em>) &#8211; Hyperspectral, multiple observation datacube. Shape: (spatial,spatial,spectral,observation).</li>
+<li><strong>S</strong> (<em>int</em>) &#8211; spatial size (Y is supposed isotropic, <em>i.e.</em> square).</li>
+<li><strong>W</strong> (<em>int</em>) &#8211; number of spectral band.</li>
+<li><strong>P</strong> (<em>int</em>) &#8211; number of observation</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="extended.html"
+                        title="previous chapter">Extended Detection</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="preprocessing.html"
+                        title="next chapter">Detection Preprocessing</a></p>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="_sources/initial.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="preprocessing.html" title="Detection Preprocessing"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="extended.html" title="Extended Detection"
+             >previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">HEOLTH 1.3 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="heolth.html" >HEOLTH Package</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &copy; Copyright 2015, Jean-Baptiste Courbot.
+      Last updated on Dec 02, 2015.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.3.1.
+    </div>
+  </body>
+</html>

@@ -1,0 +1,233 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Detection Tools &mdash; HEOLTH 1.3 documentation</title>
+    
+    <link rel="stylesheet" href="_static/classic.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    './',
+        VERSION:     '1.3',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="HEOLTH 1.3 documentation" href="index.html" />
+    <link rel="up" title="HEOLTH Package" href="heolth.html" />
+    <link rel="next" title="HEOLTH Add-ons" href="heolth_addons.html" />
+    <link rel="prev" title="Detection Preprocessing" href="preprocessing.html" /> 
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="heolth_addons.html" title="HEOLTH Add-ons"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="preprocessing.html" title="Detection Preprocessing"
+             accesskey="P">previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">HEOLTH 1.3 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="heolth.html" accesskey="U">HEOLTH Package</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="module-detection_tools">
+<span id="detection-tools"></span><h1>Detection Tools<a class="headerlink" href="#module-detection_tools" title="Permalink to this headline">¶</a></h1>
+<p>Module containing various tools, to load/create simulations and to measure 
+tests performances.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">author:</th><td class="field-body">Jean-Baptiste Courbot - <a class="reference external" href="mailto:jean-baptiste&#46;courbot&#37;&#52;&#48;univ-lyon1&#46;fr">jean-baptiste<span>&#46;</span>courbot<span>&#64;</span>univ-lyon1<span>&#46;</span>fr</a></td>
+</tr>
+<tr class="field-even field"><th class="field-name">date:</th><td class="field-body">november 16, 2015</td>
+</tr>
+</tbody>
+</table>
+<dl class="function">
+<dt id="detection_tools.gen_signaux_snr">
+<code class="descclassname">detection_tools.</code><code class="descname">gen_signaux_snr</code><span class="sig-paren">(</span><em>objet_principal</em>, <em>source_gal</em>, <em>source_halo</em>, <em>bruit_pose</em>, <em>SNR</em>, <em>simu</em>, <em>convolve=0</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/detection_tools.html#gen_signaux_snr"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#detection_tools.gen_signaux_snr" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generates simulated noisy datacubes containing a &#8220;galaxy&#8221; and a &#8220;halo&#8221; according to a SNR range.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>objet_principal</strong> (<em>str</em>) &#8211; [&#8216;halo&#8217;|&#8217;galaxy&#8217;] Indicates with respect to what object the SNR is evaluated.</li>
+<li><strong>source_gal</strong> (<em>ndarray</em>) &#8211; Noiseless datacube containing only the &#8220;galaxy&#8221;. Shape: (spatial, spatial, spectral).</li>
+<li><strong>source_halo</strong> (<em>ndarray</em>) &#8211; Noiseless datacube containing only the &#8220;halo&#8221;. Shape: (spatial, spatial, spectral).</li>
+<li><strong>bruit_pose</strong> (<em>ndarray</em>) &#8211; Noise, over multiple observations, to be added. Shape: (spatial, spatial, spectral, observation).</li>
+<li><strong>SNR</strong> (<em>float</em>) &#8211; Signal-to-Noise Ratio range to use.</li>
+<li><strong>simu</strong> (<em>struct</em>) &#8211; Simulation data coming from np.load(...). Could be used to retrieve parameters 2,3,4.</li>
+<li><strong>convolve</strong> (<em>bool</em>) &#8211; Indicates if the source data should be convolved or not.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="detection_tools.get_simu">
+<code class="descclassname">detection_tools.</code><code class="descname">get_simu</code><span class="sig-paren">(</span><em>fileloc</em>, <em>lambda_max=30</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/detection_tools.html#get_simu"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#detection_tools.get_simu" title="Permalink to this definition">¶</a></dt>
+<dd><p>Load a simulation and spectrally truncate it</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>fileloc</strong> (<em>str</em>) &#8211; Path to file.</li>
+<li><strong>lambda_max</strong> (<em>int</em>) &#8211; Maximal wawelenght to cut the datacube.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="detection_tools.qualif_test">
+<code class="descclassname">detection_tools.</code><code class="descname">qualif_test</code><span class="sig-paren">(</span><em>carte</em>, <em>verite</em>, <em>nb_elt</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/detection_tools.html#qualif_test"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#detection_tools.qualif_test" title="Permalink to this definition">¶</a></dt>
+<dd><p>Performance measure on an unmasked region.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>carte</strong> (<em>ndarray</em>) &#8211; Continuous statistic map</li>
+<li><strong>verite</strong> (<em>bool,ndarray</em>) &#8211; True map.</li>
+<li><strong>nb_elt</strong> (<em>int</em>) &#8211; Number ot thresholding to make.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first"><strong>PFA</strong> (<em>float</em>) - Estimated probability of false alarm.</p>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body"><p class="first"><strong>PDET</strong> (<em>float</em>) - Estimated probability of detection.</p>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last"><strong>Ksi</strong> (<em>float</em>) - Corresponding threshold.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="detection_tools.qualif_test_halo">
+<code class="descclassname">detection_tools.</code><code class="descname">qualif_test_halo</code><span class="sig-paren">(</span><em>carte</em>, <em>init</em>, <em>verite</em>, <em>nb_elt</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/detection_tools.html#qualif_test_halo"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#detection_tools.qualif_test_halo" title="Permalink to this definition">¶</a></dt>
+<dd><p>Performance measure on a masked region.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>carte</strong> (<em>ndarray</em>) &#8211; Continuous statistic map</li>
+<li><strong>init</strong> (<em>ndarray</em>) &#8211; Region to ignore in evaluation.</li>
+<li><strong>verite</strong> (<em>bool,ndarray</em>) &#8211; True map.</li>
+<li><strong>nb_elt</strong> (<em>int</em>) &#8211; Number ot thresholding to make.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first"><strong>PFA</strong> (<em>float</em>) - Estimated probability of false alarm.</p>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body"><p class="first"><strong>PDET</strong> (<em>float</em>) - Estimated probability of detection.</p>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last"><strong>Ksi</strong> (<em>float</em>) - Corresponding threshold.</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="preprocessing.html"
+                        title="previous chapter">Detection Preprocessing</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="heolth_addons.html"
+                        title="next chapter">HEOLTH Add-ons</a></p>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="_sources/tools.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="heolth_addons.html" title="HEOLTH Add-ons"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="preprocessing.html" title="Detection Preprocessing"
+             >previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="index.html">HEOLTH 1.3 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="heolth.html" >HEOLTH Package</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &copy; Copyright 2015, Jean-Baptiste Courbot.
+      Last updated on Nov 23, 2015.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.3.1.
+    </div>
+  </body>
+</html>

@@ -1,0 +1,728 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>demo_catalog &mdash; HEOLTH 1.3 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/classic.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '1.3',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="HEOLTH 1.3 documentation" href="../index.html" />
+    <link rel="up" title="Module code" href="index.html" /> 
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">HEOLTH 1.3 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for demo_catalog</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">This script is to be used with MUSE data.</span>
+
+<span class="sd">It uses an object position catalog and a MUSE datacube to perform extended</span>
+<span class="sd">faint source detection on objects labelled lyman-alpha emitters. It aims at</span>
+<span class="sd">detecting Lyman-alpha haloes eventually present in their vicinity.</span>
+
+<span class="sd">**Needed** : MUSE catalog (e.g. &#39;Catalog_HDFS_v1p0.fits&#39; in the ./data folder) </span>
+<span class="sd">and HDFS datacube (e.g. &#39;DATACUBE-HDFS-v1.24.fits&#39;, **to add** in the ./data folder). </span>
+
+<span class="sd">:author: Jean-Baptiste Courbot - jean-baptiste.courbot@univ-lyon1.fr</span>
+<span class="sd">:date: november 18, 2015</span>
+
+<span class="sd">&quot;&quot;&quot;</span>
+
+
+<span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="kn">as</span> <span class="nn">plt</span>
+<span class="kn">from</span> <span class="nn">astropy.io</span> <span class="kn">import</span> <span class="n">fits</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="kn">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">import</span> <span class="nn">numpy.ma</span> <span class="kn">as</span> <span class="nn">ma</span>
+<span class="kn">import</span> <span class="nn">scipy.ndimage.morphology</span> <span class="kn">as</span> <span class="nn">morph</span>
+<span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="s">&#39;../lib&#39;</span><span class="p">)</span>
+<span class="kn">import</span> <span class="nn">detection_preprocessing</span> <span class="kn">as</span> <span class="nn">nbp</span>
+<span class="kn">import</span> <span class="nn">strategy_detection_pose</span> <span class="kn">as</span> <span class="nn">sd</span>
+<span class="kn">import</span> <span class="nn">mle_sparse_est</span> <span class="kn">as</span> <span class="nn">mse</span>
+<span class="kn">from</span> <span class="nn">astropy.table</span> <span class="kn">import</span> <span class="n">Table</span>
+<span class="kn">import</span> <span class="nn">scipy.signal</span> <span class="kn">as</span> <span class="nn">si</span>
+<span class="kn">import</span> <span class="nn">scipy.stats</span> <span class="kn">as</span> <span class="nn">st</span>
+
+<span class="kn">from</span> <span class="nn">matplotlib.backends.backend_pdf</span> <span class="kn">import</span> <span class="n">PdfPages</span>
+
+
+
+<span class="sd">&quot;&quot;&quot; Notes pour l&#39;installation de MPDAF : </span>
+<span class="sd">    - Il faut installer la librairie C cfitsio,</span>
+<span class="sd">    - Astropy en v 1.x, a telecharger</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+<span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="s">&#39;../MPDAF&#39;</span><span class="p">)</span>
+<span class="c">#from mpdaf.obj import Cube</span>
+<span class="kn">from</span> <span class="nn">mpdaf.obj</span> <span class="kn">import</span> <span class="n">WCS</span>
+<span class="kn">from</span> <span class="nn">mpdaf.obj</span> <span class="kn">import</span> <span class="n">WaveCoord</span>
+<span class="kn">from</span> <span class="nn">mpdaf.obj</span> <span class="kn">import</span> <span class="n">Image</span>
+<span class="kn">from</span> <span class="nn">mpdaf.obj</span> <span class="kn">import</span> <span class="n">Spectrum</span>
+
+
+<span class="kn">from</span> <span class="nn">mpdaf.sdetect</span> <span class="kn">import</span> <span class="n">Source</span>
+
+<span class="c">#%%</span>
+<span class="k">def</span> <span class="nf">extraire_cube</span><span class="p">(</span><span class="n">cube</span><span class="p">,</span> <span class="n">coords_lya</span><span class="p">,</span><span class="n">S</span><span class="p">,</span><span class="n">W</span><span class="p">,</span><span class="n">marge_cube</span><span class="p">,</span> <span class="n">allcube</span><span class="o">=</span><span class="bp">False</span> <span class="p">):</span>
+<div class="viewcode-block" id="extraire_cube"><a class="viewcode-back" href="../demo_cat.html#demo_catalog.extraire_cube">[docs]</a>    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Extract a subcube around the provided coordinates.</span>
+<span class="sd">    May be replaced by MPFAD cube.subcube method, which provides square outputs</span>
+<span class="sd">    fulled with NaNs if necessary.</span>
+<span class="sd">    </span>
+<span class="sd">    :param ndarray cube: full datacube in which extraction is performed.</span>
+<span class="sd">    :param ndarray coords_lya: list of coordinates.</span>
+<span class="sd">    :param int S: spatial size of the subcube to extract.</span>
+<span class="sd">    :param int W: spectral length of the subcube to extract.</span>
+<span class="sd">    :param int marge_cube: margin to ignore in the total datacube.</span>
+<span class="sd">    :param bool allcube: define wether a subcube [False] or a cube slice [True] is extracted. If True, the cube is expected square.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c"># casting</span>
+    <span class="n">coords_lya</span> <span class="o">=</span> <span class="n">coords_lya</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>    
+
+    
+
+    <span class="n">lmin</span> <span class="o">=</span> <span class="n">coords_lya</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="o">-</span><span class="n">W</span><span class="o">/</span><span class="mi">2</span> <span class="p">;</span> <span class="n">lmax</span> <span class="o">=</span> <span class="n">coords_lya</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="o">+</span><span class="n">W</span><span class="o">/</span><span class="mi">2</span> <span class="p">;</span>
+    <span class="k">if</span> <span class="n">allcube</span><span class="o">==</span><span class="bp">False</span><span class="p">:</span>
+        <span class="n">xmin</span> <span class="o">=</span> <span class="n">coords_lya</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">-</span><span class="n">S</span><span class="o">/</span><span class="mi">2</span> <span class="p">;</span> <span class="n">xmax</span> <span class="o">=</span> <span class="n">coords_lya</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">+</span><span class="n">S</span><span class="o">/</span><span class="mi">2</span>
+        <span class="n">ymin</span> <span class="o">=</span> <span class="n">coords_lya</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">-</span><span class="n">S</span><span class="o">/</span><span class="mi">2</span> <span class="p">;</span> <span class="n">ymax</span> <span class="o">=</span> <span class="n">coords_lya</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">+</span><span class="n">S</span><span class="o">/</span><span class="mi">2</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c"># Ensuring the cube is square - to be removed ?</span>
+        <span class="k">if</span> <span class="n">cube</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">!=</span><span class="n">cube</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]:</span>
+            <span class="n">S</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">cube</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">!=</span><span class="n">cube</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+            <span class="n">cube</span> <span class="o">=</span> <span class="n">cube</span><span class="p">[:,:</span><span class="n">S</span><span class="p">,:</span><span class="n">S</span><span class="p">]</span>
+            
+        <span class="n">xmin</span> <span class="o">=</span> <span class="n">marge_cube</span> <span class="p">;</span> <span class="n">xmax</span> <span class="o">=</span> <span class="n">cube</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="o">-</span><span class="n">marge_cube</span><span class="p">;</span>   
+        <span class="n">ymin</span> <span class="o">=</span> <span class="n">marge_cube</span> <span class="p">;</span> <span class="n">ymax</span> <span class="o">=</span> <span class="n">cube</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">-</span><span class="n">marge_cube</span>
+    
+
+    <span class="c"># Spatial center definition :</span>
+    <span class="k">if</span> <span class="n">allcube</span><span class="o">==</span><span class="bp">False</span><span class="p">:</span>
+        <span class="c"># default : the object center and subcube center are identical.</span>
+        <span class="n">centre</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="nb">int</span><span class="p">(</span><span class="n">S</span><span class="o">/</span><span class="mi">2</span><span class="p">),</span><span class="nb">int</span><span class="p">(</span><span class="n">S</span><span class="o">/</span><span class="mi">2</span><span class="p">)])</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c"># if all cube slice are taken :</span>
+        <span class="n">centre</span>  <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">coords_lya</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span><span class="n">coords_lya</span><span class="p">[</span><span class="mi">1</span><span class="p">]])</span> <span class="o">-</span> <span class="n">marge_cube</span>
+
+
+    <span class="c"># Spatial bounds / center adjustments for border cases</span>
+    <span class="k">if</span> <span class="n">allcube</span><span class="o">==</span><span class="bp">False</span><span class="p">:</span>
+        <span class="n">s0</span> <span class="o">=</span> <span class="n">cube</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span>    
+        <span class="n">s1</span> <span class="o">=</span> <span class="n">cube</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">diff_x</span> <span class="o">=</span> <span class="n">xmin</span><span class="o">-</span><span class="n">marge_cube</span>
+        <span class="k">if</span> <span class="n">diff_x</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">xmin</span> <span class="o">=</span> <span class="n">marge_cube</span>
+            <span class="n">xmax</span> <span class="o">-=</span> <span class="n">diff_x</span>
+            <span class="n">centre</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">-=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">diff_x</span><span class="p">)</span>
+    
+        <span class="n">diff_x</span> <span class="o">=</span> <span class="n">xmax</span> <span class="o">-</span> <span class="p">(</span><span class="n">s0</span><span class="o">-</span><span class="n">marge_cube</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">diff_x</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">xmax</span> <span class="o">=</span> <span class="n">s0</span><span class="o">-</span><span class="n">marge_cube</span>
+            <span class="n">xmin</span> <span class="o">-=</span><span class="n">diff_x</span>
+            <span class="n">centre</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+=</span> <span class="n">diff_x</span>
+    
+            
+            
+        <span class="n">diff_y</span> <span class="o">=</span> <span class="n">ymin</span><span class="o">-</span><span class="n">marge_cube</span>
+        <span class="k">if</span> <span class="n">diff_y</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">ymin</span> <span class="o">=</span> <span class="n">marge_cube</span>
+            <span class="n">ymax</span> <span class="o">-=</span> <span class="n">diff_y</span>
+            <span class="n">centre</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">-=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">diff_y</span><span class="p">)</span>
+    
+        <span class="n">diff_y</span> <span class="o">=</span> <span class="n">ymax</span> <span class="o">-</span> <span class="p">(</span><span class="n">s1</span><span class="o">-</span><span class="n">marge_cube</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">diff_y</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">ymax</span> <span class="o">=</span> <span class="n">s1</span><span class="o">-</span><span class="n">marge_cube</span>
+            <span class="n">ymin</span> <span class="o">-=</span> <span class="n">diff_y</span>
+            <span class="n">centre</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">+=</span> <span class="n">diff_y</span>
+    
+        <span class="c"># Ensuring the output is square</span>
+        <span class="n">size_x</span> <span class="o">=</span> <span class="n">xmax</span><span class="o">-</span><span class="n">xmin</span>
+        <span class="n">size_y</span> <span class="o">=</span> <span class="n">ymax</span><span class="o">-</span><span class="n">ymin</span>
+        
+        <span class="n">diff_size</span> <span class="o">=</span> <span class="n">size_x</span> <span class="o">-</span> <span class="n">size_y</span>
+        <span class="k">if</span> <span class="n">diff_size</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            
+            <span class="n">xmin</span> <span class="o">+=</span> <span class="nb">int</span><span class="p">(</span><span class="n">diff_size</span><span class="o">/</span><span class="mi">2</span><span class="p">)</span>
+            <span class="n">centre</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+=</span> <span class="nb">int</span><span class="p">(</span><span class="n">diff_size</span><span class="o">/</span><span class="mi">2</span><span class="p">)</span>        
+            
+            <span class="n">xmax</span> <span class="o">-=</span> <span class="nb">int</span><span class="p">(</span><span class="n">diff_size</span><span class="o">/</span><span class="mi">2</span><span class="p">)</span>
+            
+        <span class="k">elif</span> <span class="n">diff_size</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">ymin</span> <span class="o">+=</span> <span class="nb">int</span><span class="p">(</span><span class="o">-</span><span class="n">diff_size</span><span class="o">/</span><span class="mi">2</span><span class="p">)</span>
+            <span class="n">centre</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">+=</span> <span class="nb">int</span><span class="p">(</span><span class="o">-</span><span class="n">diff_size</span><span class="o">/</span><span class="mi">2</span><span class="p">)</span>        
+            
+            <span class="n">ymax</span> <span class="o">-=</span> <span class="nb">int</span><span class="p">(</span><span class="o">-</span><span class="n">diff_size</span><span class="o">/</span><span class="mi">2</span><span class="p">)</span>
+
+
+
+        
+    <span class="c"># Spectral center definition :</span>
+    <span class="n">pos_ligne</span> <span class="o">=</span> <span class="n">coords_lya</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span>
+    
+    <span class="c"># Adjustments for border cases (ie low wavelength)</span>
+    <span class="n">diff_l</span> <span class="o">=</span> <span class="n">lmin</span>
+    <span class="k">if</span> <span class="n">diff_l</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">lmin</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">lmax</span> <span class="o">=</span> <span class="n">W</span>
+        <span class="n">pos_ligne</span> <span class="o">-=</span> <span class="n">diff_l</span>
+
+    <span class="n">diff_l</span> <span class="o">=</span> <span class="n">lmax</span> <span class="o">-</span> <span class="n">cube</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">diff_l</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">lmax</span> <span class="o">=</span> <span class="n">cube</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">lmin</span>  <span class="o">=</span> <span class="n">lmax</span> <span class="o">-</span> <span class="n">W</span>
+        <span class="n">pos_ligne</span> <span class="o">+=</span> <span class="n">diff_l</span>
+        
+
+
+    <span class="c"># Actual subcube extraction:</span>
+    <span class="n">sous_cube</span> <span class="o">=</span> <span class="n">cube</span><span class="p">[</span><span class="n">lmin</span><span class="p">:</span><span class="n">lmax</span><span class="p">,</span><span class="n">ymin</span><span class="p">:</span><span class="n">ymax</span><span class="p">,</span><span class="n">xmin</span><span class="p">:</span><span class="n">xmax</span><span class="p">]</span>
+    
+    <span class="c"># to be removed if Nans are included in cubes.</span>
+    <span class="n">sous_cube</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">sous_cube</span><span class="p">)]</span><span class="o">=</span><span class="mi">0</span>
+    
+    <span class="c"># Now axes are x,y,lambda instead of lambda,y,x</span>
+    <span class="n">sous_cube</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">swapaxes</span><span class="p">(</span><span class="n">sous_cube</span><span class="p">,</span><span class="mi">2</span><span class="p">,</span><span class="mi">0</span><span class="p">)</span>
+    
+    <span class="k">return</span> <span class="n">sous_cube</span><span class="p">,</span><span class="n">centre</span><span class="p">,</span><span class="n">lmin</span><span class="p">,</span><span class="n">lmax</span><span class="p">,</span><span class="n">xmin</span><span class="p">,</span><span class="n">xmax</span><span class="p">,</span><span class="n">ymin</span><span class="p">,</span><span class="n">ymax</span><span class="p">,</span><span class="n">pos_ligne</span>
+
+
+<span class="k">def</span> <span class="nf">calcul_fwhm</span><span class="p">(</span><span class="n">lam</span><span class="p">):</span></div>
+<div class="viewcode-block" id="calcul_fwhm"><a class="viewcode-back" href="../demo_cat.html#demo_catalog.calcul_fwhm">[docs]</a>    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Full-Width at Half Maximum computation for the HDFS datacube.</span>
+<span class="sd">    See Bacon et al., 2015, *The MUSE 3D View of the Hubble Deep Field South*.</span>
+<span class="sd">    </span>
+<span class="sd">    :param float lam: wavelength to perform the computation.</span>
+<span class="sd">    </span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="o">-</span><span class="mf">1.625</span><span class="o">*</span><span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="o">-</span><span class="mi">4</span><span class="p">)</span> <span class="o">*</span><span class="n">lam</span> <span class="o">+</span> <span class="mf">4.5375</span>
+
+
+
+<span class="k">if</span> <span class="n">__name__</span><span class="o">==</span><span class="s">&#39;__main__&#39;</span><span class="p">:</span></div>
+    <span class="c"># Useful parameters</span>
+    <span class="n">lambda_0</span> <span class="o">=</span> <span class="mi">4750</span>    <span class="c"># see Bacon et al, 2015</span>
+    <span class="n">lambda_lya</span> <span class="o">=</span> <span class="mi">1216</span>
+    <span class="n">pas_spectral</span> <span class="o">=</span> <span class="mf">1.25</span> <span class="c"># Angstrom / spectral band</span>
+    <span class="n">marge_cube</span> <span class="o">=</span> <span class="mi">10</span>   <span class="c"># we ignore 10-px border because of border effects.</span>
+    
+
+    <span class="n">beta</span><span class="o">=</span><span class="mf">2.6</span>
+    <span class="n">pas</span> <span class="o">=</span> <span class="mf">0.15</span>
+    <span class="n">nb_ech_dic</span> <span class="o">=</span> <span class="mi">50</span>
+    
+    <span class="n">taille_f</span> <span class="o">=</span> <span class="mi">11</span>
+    <span class="n">marge</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">taille_f</span><span class="o">/</span><span class="mi">2</span><span class="p">)</span>
+    
+    <span class="n">W</span> <span class="o">=</span> <span class="mi">20</span>
+
+    
+    <span class="n">D</span> <span class="o">=</span> <span class="n">nbp</span><span class="o">.</span><span class="n">gen_dic</span><span class="p">(</span><span class="n">W</span><span class="p">,</span> <span class="n">pas</span> <span class="o">=</span> <span class="n">pas</span><span class="p">,</span> <span class="n">nb_ech</span><span class="o">=</span><span class="n">nb_ech_dic</span><span class="p">,</span><span class="n">asym</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+    
+    <span class="n">wcs1</span> <span class="o">=</span> <span class="n">WCS</span><span class="p">(</span><span class="n">crval</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span><span class="n">cdelt</span><span class="o">=</span><span class="mf">0.2</span><span class="p">)</span>
+    <span class="n">wave1</span> <span class="o">=</span> <span class="n">WaveCoord</span><span class="p">(</span><span class="n">cdelt</span><span class="o">=</span><span class="mf">1.25</span><span class="p">,</span> <span class="n">crval</span><span class="o">=</span><span class="mf">4750.0</span><span class="p">,</span> <span class="n">cunit</span><span class="o">=</span><span class="s">&#39;Angstrom&#39;</span><span class="p">)</span>
+    
+    <span class="n">colmap</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">cm</span><span class="o">.</span><span class="n">Blues</span>
+    
+    <span class="c"># Object catalog loading</span>
+    <span class="n">f</span> <span class="o">=</span> <span class="n">fits</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s">&#39;../data/Catalog_HDFS_v1p0.fits&#39;</span><span class="p">,</span><span class="n">memmap</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+    
+    <span class="c"># Cube loading</span>
+    <span class="n">hdulist</span> <span class="o">=</span> <span class="n">fits</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s">&#39;../data/DATACUBE-HDFS-v1.24.fits&#39;</span><span class="p">,</span><span class="n">memmap</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+    <span class="n">cube</span> <span class="o">=</span>  <span class="n">hdulist</span><span class="p">[</span><span class="s">&#39;data&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">data</span>
+
+    <span class="c">#%% Lyman-alpha lines info for the HDFS cube:</span>
+    <span class="c"># Load this info ?</span>
+    <span class="n">LAMBDA_LINES</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="mi">43</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">5212.</span><span class="p">,</span> <span class="mf">5230.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.74</span><span class="p">},</span>
+    <span class="mi">92</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">6778.</span><span class="p">,</span> <span class="mf">6800.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.675</span><span class="p">},</span>
+    <span class="mi">95</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">6344.</span><span class="p">,</span> <span class="mf">6359.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.695</span><span class="p">},</span>
+    <span class="mi">112</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">5963.</span><span class="p">,</span> <span class="mf">5975.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.72</span><span class="p">},</span>
+    <span class="mi">139</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">5275.</span><span class="p">,</span> <span class="mf">5297.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.73</span><span class="p">},</span>
+    <span class="mi">159</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">5764.</span><span class="p">,</span> <span class="mf">5775.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.725</span><span class="p">},</span>
+    <span class="mi">162</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">5196.</span><span class="p">,</span> <span class="mf">5213.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.74</span><span class="p">},</span>
+    <span class="mi">181</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">5269.</span><span class="p">,</span> <span class="mf">5280.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.735</span><span class="p">},</span>
+    <span class="mi">200</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">5285.</span><span class="p">,</span> <span class="mf">5294.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.735</span><span class="p">},</span>
+    <span class="mi">216</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">6092.</span><span class="p">,</span> <span class="mf">6115.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.71</span><span class="p">},</span>
+    <span class="mi">232</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mi">7553</span><span class="p">,</span> <span class="mi">7564</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.645</span><span class="p">},</span>
+    <span class="mi">246</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">8116.</span><span class="p">,</span> <span class="mf">8132.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.635</span><span class="p">},</span>
+    <span class="mi">257</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">6715.</span><span class="p">,</span> <span class="mf">6726.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.725</span><span class="p">},</span>
+    <span class="mi">290</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">8611.</span><span class="p">,</span> <span class="mf">8623.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.62</span><span class="p">},</span>
+    <span class="mi">294</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">6067.</span><span class="p">,</span> <span class="mf">6078.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.71</span><span class="p">},</span>
+    <span class="mi">308</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">6096.</span><span class="p">,</span> <span class="mf">6111.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.71</span><span class="p">},</span>
+    <span class="mi">311</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">5941.</span><span class="p">,</span> <span class="mf">5951.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.72</span><span class="p">},</span>
+    <span class="mi">324</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">5471.</span><span class="p">,</span> <span class="mf">5479.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.73</span><span class="p">},</span>
+    <span class="mi">325</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">6927.</span><span class="p">,</span> <span class="mf">6940.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.665</span><span class="p">},</span>
+    <span class="mi">334</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">7188.</span><span class="p">,</span> <span class="mf">7198.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.66</span><span class="p">},</span>
+    <span class="mi">338</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">7170.</span><span class="p">,</span> <span class="mf">7181.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.66</span><span class="p">},</span>
+    <span class="mi">393</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">6305.</span><span class="p">,</span> <span class="mf">6316.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.695</span><span class="p">},</span>
+    <span class="mi">422</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">5016.</span><span class="p">,</span> <span class="mf">5025.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.75</span><span class="p">},</span>
+    <span class="mi">430</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">8849.</span><span class="p">,</span> <span class="mf">8862.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.61</span><span class="p">},</span>
+    <span class="mi">437</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">5005.</span><span class="p">,</span> <span class="mf">5015.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.75</span><span class="p">},</span>
+    <span class="mi">449</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">5196.</span><span class="p">,</span> <span class="mf">5205.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.74</span><span class="p">},</span>
+    <span class="mi">469</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">5427.</span><span class="p">,</span> <span class="mf">5437.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.73</span><span class="p">},</span>
+    <span class="mi">484</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">7185.</span><span class="p">,</span> <span class="mf">7196.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.66</span><span class="p">},</span>
+    <span class="mi">489</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">4806.</span><span class="p">,</span> <span class="mf">4819.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.76</span><span class="p">},</span>
+    <span class="mi">500</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">5470.</span><span class="p">,</span> <span class="mf">5480.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.73</span><span class="p">},</span>
+    <span class="mi">503</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">5284.</span><span class="p">,</span> <span class="mf">5295.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.73</span><span class="p">},</span>
+    <span class="mi">514</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">5861.</span><span class="p">,</span> <span class="mf">5873.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.725</span><span class="p">},</span>
+    <span class="mi">520</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">5441.</span><span class="p">,</span> <span class="mf">5451.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.73</span><span class="p">},</span>
+    <span class="mi">543</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">5628.</span><span class="p">,</span> <span class="mf">5639.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.725</span><span class="p">},</span>
+    <span class="mi">546</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">8157.</span><span class="p">,</span> <span class="mf">8174.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.635</span><span class="p">},</span>
+    <span class="mi">547</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">8157.</span><span class="p">,</span> <span class="mf">8170.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.635</span><span class="p">},</span>
+    <span class="mi">549</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">6895.</span><span class="p">,</span> <span class="mf">6905.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.665</span><span class="p">},</span>
+    <span class="mi">551</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">5079.</span><span class="p">,</span> <span class="mf">5089.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.75</span><span class="p">},</span>
+    <span class="mi">553</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">7388.</span><span class="p">,</span> <span class="mf">7401.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.655</span><span class="p">},</span>
+    <span class="mi">558</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">5015.</span><span class="p">,</span> <span class="mf">5025.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.75</span><span class="p">},</span>
+    <span class="mi">563</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">5865.</span><span class="p">,</span> <span class="mf">5876.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.725</span><span class="p">},</span>
+    <span class="mi">568</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">6880.</span><span class="p">,</span> <span class="mf">6894.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.67</span><span class="p">},</span>
+    <span class="mi">574</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">8158.</span><span class="p">,</span> <span class="mf">8168.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.635</span><span class="p">},</span>
+    <span class="mi">579</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">5595.</span><span class="p">,</span> <span class="mf">5604.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.68</span><span class="p">},</span>
+    <span class="mi">580</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">5631.</span><span class="p">,</span> <span class="mf">5640.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.725</span><span class="p">},</span>
+    <span class="mi">583</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">7187.</span><span class="p">,</span> <span class="mf">7195.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.66</span><span class="p">},</span>
+    <span class="mi">56</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">4871.</span><span class="p">,</span> <span class="mf">4890.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.76</span><span class="p">},</span>
+    <span class="mi">40</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:[</span><span class="mf">4872.</span><span class="p">,</span> <span class="mf">4887.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.76</span><span class="p">},</span>
+    <span class="mi">71</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">4961.6</span><span class="p">,</span> <span class="mf">4973.7</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.76</span><span class="p">},</span>
+    <span class="mi">89</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">6089.5</span><span class="p">,</span> <span class="mf">6110.2</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.76</span><span class="p">},</span>
+    <span class="mi">119</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">4992.0</span><span class="p">,</span> <span class="mi">4999</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.76</span><span class="p">},</span>
+    <span class="mi">121</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">5474.1</span><span class="p">,</span> <span class="mf">5480.5</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.76</span><span class="p">},</span>
+    <span class="mi">144</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mi">6092</span><span class="p">,</span> <span class="mf">6110.0</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.71</span><span class="p">},</span>
+    <span class="mi">146</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mi">5826</span><span class="p">,</span> <span class="mi">5837</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.72</span><span class="p">},</span>
+    <span class="mi">155</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">4883.0</span><span class="p">,</span> <span class="mf">4888.0</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.76</span><span class="p">},</span>
+    <span class="mi">183</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">5314.6</span><span class="p">,</span> <span class="mf">5325.2</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.73</span><span class="p">},</span>
+    <span class="mi">186</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">7170.0</span><span class="p">,</span> <span class="mi">7185</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.66</span><span class="p">},</span>
+    <span class="mi">202</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">5197.</span><span class="p">,</span> <span class="mf">5209.4</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.73</span><span class="p">},</span>
+    <span class="mi">218</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">7169.1</span><span class="p">,</span> <span class="mf">7183.2</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.66</span><span class="p">},</span>
+    <span class="mi">225</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">6454.4</span><span class="p">,</span> <span class="mf">6466.3</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.695</span><span class="p">},</span>
+    <span class="mi">238</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">5860.1</span><span class="p">,</span> <span class="mf">5861.8</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.72</span><span class="p">},</span>
+    <span class="mi">261</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">5314.4</span><span class="p">,</span> <span class="mf">5325.0</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.76</span><span class="p">},</span>
+    <span class="mi">271</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">6308.0</span><span class="p">,</span> <span class="mf">6318.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.695</span><span class="p">},</span>
+    <span class="mi">363</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">6717.0</span><span class="p">,</span> <span class="mf">6730.5</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.725</span><span class="p">},</span>
+    <span class="mi">386</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">5761.9</span><span class="p">,</span> <span class="mf">5769.2</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.72</span><span class="p">},</span>
+    <span class="mi">433</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">5431.1</span><span class="p">,</span> <span class="mf">5440.0</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.76</span><span class="p">},</span>
+    <span class="mi">441</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">6919.5</span><span class="p">,</span> <span class="mf">6933.1</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.665</span><span class="p">},</span>
+    <span class="mi">452</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">5005.6</span><span class="p">,</span> <span class="mf">5015.7</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.75</span><span class="p">},</span>
+    <span class="mi">453</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">6930.0</span><span class="p">,</span> <span class="mf">6939.8</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.665</span><span class="p">},</span>
+    <span class="mi">462</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">8016.</span><span class="p">,</span> <span class="mf">8026.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.64</span><span class="p">},</span>
+    <span class="mi">474</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">6937.3</span><span class="p">,</span> <span class="mf">6956.1</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.665</span><span class="p">},</span>
+    <span class="mi">478</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">5429.9</span><span class="p">,</span> <span class="mf">5440.0</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.76</span><span class="p">},</span>
+    <span class="mi">492</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">8216.0</span><span class="p">,</span> <span class="mf">8228.1</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.635</span><span class="p">},</span>
+    <span class="mi">498</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">6326.0</span><span class="p">,</span> <span class="mf">6338.5</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.695</span><span class="p">},</span>
+    <span class="mi">499</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">6921.</span><span class="p">,</span> <span class="mf">6934.4</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.665</span><span class="p">},</span>
+    <span class="mi">501</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">5014.0</span><span class="p">,</span> <span class="mf">5026.2</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.75</span><span class="p">},</span>
+    <span class="mi">513</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mi">5198</span><span class="p">,</span> <span class="mi">5209</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.74</span><span class="p">},</span>
+    <span class="mi">534</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">6599.0</span><span class="p">,</span> <span class="mi">6615</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.7</span><span class="p">},</span>
+    <span class="mi">548</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mi">6914</span><span class="p">,</span> <span class="mi">6923</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.665</span><span class="p">},</span>
+    <span class="mi">550</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mi">6882</span><span class="p">,</span> <span class="mf">6890.3</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.665</span><span class="p">},</span>
+    <span class="mi">552</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mi">7392</span><span class="p">,</span> <span class="mf">7402.1</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.66</span><span class="p">},</span>
+    <span class="mi">555</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mi">6693</span><span class="p">,</span> <span class="mi">6709</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.665</span><span class="p">},</span>
+    <span class="mi">557</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">7539.</span><span class="p">,</span> <span class="mf">7550.0</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.645</span><span class="p">},</span>
+    <span class="mi">559</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">7152.6</span><span class="p">,</span> <span class="mf">7159.6</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.66</span><span class="p">},</span>
+    <span class="mi">560</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">8359.6</span><span class="p">,</span> <span class="mf">8370.0</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.64</span><span class="p">},</span>
+    <span class="mi">561</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">7060.2</span><span class="p">,</span> <span class="mf">7072.8</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.66</span><span class="p">},</span>
+    <span class="mi">562</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">7101.0</span><span class="p">,</span> <span class="mf">7110.2</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.66</span><span class="p">},</span>
+    <span class="mi">564</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">8607.3</span><span class="p">,</span> <span class="mf">8622.0</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.62</span><span class="p">},</span>
+    <span class="mi">573</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">8838.2</span><span class="p">,</span> <span class="mf">8848.6</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.62</span><span class="p">},</span>
+    <span class="mi">575</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">8673.</span><span class="p">,</span> <span class="mf">8684.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.62</span><span class="p">},</span>
+    <span class="mi">577</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">8215.6</span><span class="p">,</span> <span class="mf">8228.3</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.62</span><span class="p">},</span>
+    <span class="mi">578</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">5078.7</span><span class="p">,</span> <span class="mf">5088.3</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.75</span><span class="p">},</span>
+    <span class="mi">581</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">5860.</span><span class="p">,</span> <span class="mf">5879.</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.72</span><span class="p">},</span>
+    <span class="mi">582</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">6797.8</span><span class="p">,</span> <span class="mf">6808.8</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.725</span><span class="p">},</span>
+    <span class="mi">584</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mi">8377</span><span class="p">,</span> <span class="mi">8389</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.64</span><span class="p">},</span>
+    <span class="mi">585</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">5271.9</span><span class="p">,</span> <span class="mf">5280.2</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.74</span><span class="p">},</span>
+    <span class="mi">586</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mi">7414</span><span class="p">,</span> <span class="mi">7428</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.66</span><span class="p">},</span>
+    <span class="mi">587</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">6606.7</span><span class="p">,</span> <span class="mf">6616.0</span><span class="p">],</span><span class="s">&#39;fwhm&#39;</span><span class="p">:</span><span class="mf">0.665</span><span class="p">},</span>
+    <span class="p">}</span>
+    
+    <span class="c">#%% Let us get the X,Y,Lambda coordinates (+ Dec,Ra)</span>
+    <span class="n">tbdata</span> <span class="o">=</span> <span class="n">f</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">data</span>
+    <span class="n">z</span> <span class="o">=</span> <span class="n">tbdata</span><span class="p">[</span><span class="s">&#39;Z&#39;</span><span class="p">]</span>
+    <span class="n">tout</span> <span class="o">=</span> <span class="n">tbdata</span>
+    <span class="n">coords</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">tout</span><span class="p">[</span><span class="s">&#39;X&#39;</span><span class="p">],</span> <span class="n">tout</span><span class="p">[</span><span class="s">&#39;Y&#39;</span><span class="p">],</span> <span class="n">tout</span><span class="p">[</span><span class="s">&#39;Z&#39;</span><span class="p">]])</span>
+    
+    <span class="n">num</span> <span class="o">=</span> <span class="n">tout</span><span class="p">[</span><span class="s">&#39;ID&#39;</span><span class="p">]</span>
+    <span class="n">categ</span> <span class="o">=</span> <span class="n">tout</span><span class="p">[</span><span class="s">&#39;CATEGORY&#39;</span><span class="p">]</span>
+    
+    <span class="c"># Now we keep only lyman-alpha emitters, labeled as &#39;Lya&#39; in the catalog</span>
+    <span class="n">cat_lya</span> <span class="o">=</span> <span class="n">tout</span><span class="p">[(</span><span class="n">categ</span><span class="o">==</span><span class="s">&#39;Lya&#39;</span><span class="p">)</span><span class="o">&amp;</span><span class="p">(</span><span class="n">z</span><span class="o">&gt;=</span><span class="mi">0</span><span class="p">)]</span>
+    <span class="n">coords_lya</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">cat_lya</span><span class="p">[</span><span class="s">&#39;X&#39;</span><span class="p">],</span> <span class="n">cat_lya</span><span class="p">[</span><span class="s">&#39;Y&#39;</span><span class="p">],</span> <span class="n">cat_lya</span><span class="p">[</span><span class="s">&#39;Z&#39;</span><span class="p">]])</span>
+    
+    <span class="n">ra_lya</span> <span class="o">=</span> <span class="n">cat_lya</span><span class="p">[</span><span class="s">&#39;RA&#39;</span><span class="p">]</span>
+    <span class="n">dec_lya</span> <span class="o">=</span> <span class="n">cat_lya</span><span class="p">[</span><span class="s">&#39;DEC&#39;</span><span class="p">]</span>
+    <span class="n">z_lya</span> <span class="o">=</span> <span class="n">cat_lya</span><span class="p">[</span><span class="s">&#39;Z&#39;</span><span class="p">]</span>
+    
+    <span class="n">coords_lya</span><span class="p">[</span><span class="mi">2</span><span class="p">,:]</span> <span class="o">=</span> <span class="p">((</span><span class="mi">1</span> <span class="o">+</span> <span class="n">coords_lya</span><span class="p">[</span><span class="mi">2</span><span class="p">,:])</span><span class="o">*</span><span class="n">lambda_lya</span> <span class="o">-</span> <span class="n">lambda_0</span><span class="p">)</span><span class="o">/</span><span class="n">pas_spectral</span>
+    
+    <span class="n">coords_lya</span> <span class="o">=</span> <span class="n">coords_lya</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+    <span class="n">num_lya</span> <span class="o">=</span> <span class="n">num</span><span class="p">[(</span><span class="n">categ</span><span class="o">==</span><span class="s">&#39;Lya&#39;</span><span class="p">)</span><span class="o">&amp;</span><span class="p">(</span><span class="n">z</span><span class="o">&gt;=</span><span class="mi">0</span><span class="p">)]</span>
+
+
+    <span class="n">liste_mauvais</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">num_lya</span><span class="o">.</span><span class="n">shape</span><span class="p">))</span>
+    <span class="n">liste_mauvais</span><span class="p">[</span><span class="mi">69</span><span class="p">]</span><span class="o">=</span><span class="mi">1</span><span class="p">;</span>
+
+    <span class="n">PFA</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mf">0.1</span><span class="p">,</span><span class="mf">0.01</span><span class="p">,</span><span class="mf">0.001</span><span class="p">,</span> <span class="mf">0.0001</span><span class="p">])</span>
+    
+    
+    <span class="n">nb_obj</span> <span class="o">=</span> <span class="n">num_lya</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">nb_col</span> <span class="o">=</span> <span class="mi">3</span>
+    <span class="n">NB</span> <span class="o">=</span> <span class="mi">3</span>
+
+
+    
+    <span class="c">## Parameters for plotting</span>
+    <span class="n">start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+    <span class="n">nb_li</span> <span class="o">=</span> <span class="mi">3</span>
+    <span class="n">nb_col</span> <span class="o">=</span> <span class="mi">3</span>
+    <span class="n">num_plot</span><span class="o">=</span><span class="mi">1</span>
+    
+    
+    <span class="c"># Method parameters</span>
+    <span class="n">pfa_faint</span><span class="o">=</span><span class="mf">0.0001</span>
+    <span class="n">pfa_bright</span><span class="o">=</span><span class="mf">0.01</span>
+    <span class="n">diag</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="n">P</span> <span class="o">=</span> <span class="mi">1</span>
+    
+    <span class="c"># Processing options:</span>
+    <span class="n">type_test</span><span class="o">=</span><span class="s">&#39;sample&#39;</span> <span class="c"># [&#39;full&#39;, &#39;sample&#39;]</span>
+    
+    <span class="n">allcube</span> <span class="o">=</span> <span class="bp">False</span> <span class="c"># set if the subcubespread over the full cube or a part of it.</span>
+    <span class="k">if</span> <span class="n">allcube</span><span class="o">==</span><span class="bp">False</span><span class="p">:</span>  <span class="n">stac</span> <span class="o">=</span> <span class="s">&#39;&#39;</span> 
+    <span class="k">else</span><span class="p">:</span>               <span class="n">stac</span><span class="o">=</span><span class="s">&#39;- allcube&#39;</span>
+    
+    <span class="n">version</span> <span class="o">=</span> <span class="s">&#39;1.3&#39;</span>
+    
+    <span class="n">nom_dossier</span> <span class="o">=</span> <span class="s">&#39;../results/HDFS_1.24_&#39;</span><span class="o">+</span><span class="n">type_test</span><span class="o">+</span><span class="s">&#39; (&#39;</span><span class="o">+</span><span class="n">version</span><span class="o">+</span><span class="n">stac</span><span class="o">+</span><span class="s">&#39;)/&#39;</span>
+    
+    <span class="n">doc_pdf</span> <span class="o">=</span> <span class="n">PdfPages</span><span class="p">(</span><span class="n">nom_dossier</span><span class="o">+</span><span class="s">&#39;2015-11-Lya-ext-HDFS-&#39;</span><span class="o">+</span><span class="n">type_test</span><span class="o">+</span><span class="s">&#39;-1.24.pdf&#39;</span><span class="p">)</span>
+    
+    <span class="k">if</span> <span class="n">type_test</span> <span class="o">==</span><span class="s">&#39;sample&#39;</span><span class="p">:</span>
+        <span class="n">iterobj</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="mi">1</span><span class="p">,</span><span class="mi">4</span><span class="p">,</span><span class="mi">5</span><span class="p">,</span><span class="mi">7</span><span class="p">,</span><span class="mi">24</span><span class="p">,</span><span class="mi">29</span><span class="p">,</span><span class="mi">39</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">iterobj</span> <span class="o">=</span> <span class="nb">range</span><span class="p">(</span><span class="n">nb_obj</span><span class="p">)</span>
+    
+    <span class="c">#%%</span>
+    <span class="c"># cube median-filtering (may be done on subcubes):</span>
+    <span class="c">#cube_medfilt = si.medfilt(cube,(301,1,1))    </span>
+    
+    
+    <span class="k">for</span> <span class="n">obj</span> <span class="ow">in</span> <span class="n">iterobj</span><span class="p">:</span>
+    
+        <span class="k">if</span> <span class="n">liste_mauvais</span><span class="p">[</span><span class="n">obj</span><span class="p">]</span><span class="o">==</span><span class="mi">0</span><span class="p">:</span>
+            
+            <span class="n">Fig</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="n">nb_col</span><span class="o">*</span><span class="mf">4.5</span><span class="p">,</span><span class="mi">4</span><span class="o">*</span><span class="n">nb_li</span><span class="p">))</span>
+            <span class="k">print</span> <span class="s">&#39;Num. &#39;</span><span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">num_lya</span><span class="p">[</span><span class="n">obj</span><span class="p">])</span> <span class="o">+</span> <span class="s">&#39;, z = &#39;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">z_lya</span><span class="p">[</span><span class="n">obj</span><span class="p">])</span>            
+            
+            <span class="c"># Current FWHM</span>
+            <span class="n">fwhm_courant</span> <span class="o">=</span> <span class="n">calcul_fwhm</span><span class="p">(</span><span class="n">lam</span><span class="o">=</span><span class="n">coords_lya</span><span class="p">[</span><span class="mi">2</span><span class="p">,</span><span class="n">obj</span><span class="p">]</span><span class="o">*</span><span class="n">pas_spectral</span> <span class="o">+</span> <span class="n">lambda_0</span><span class="p">)</span>
+            
+            <span class="c"># For display purpose</span>
+            <span class="n">F</span> <span class="o">=</span> <span class="n">nbp</span><span class="o">.</span><span class="n">Moffat</span><span class="p">(</span><span class="n">taille_f</span><span class="p">,</span> <span class="n">fwhm_courant</span><span class="p">,</span><span class="n">beta</span><span class="p">)</span>
+            
+            <span class="n">W_aff</span> <span class="o">=</span> <span class="mi">300</span>
+
+            <span class="c"># Custom object spatial size. May be removed</span>
+            <span class="k">if</span> <span class="n">num_lya</span><span class="p">[</span><span class="n">obj</span><span class="p">]</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">40</span><span class="p">,</span><span class="mi">489</span><span class="p">):</span>
+                <span class="n">S</span> <span class="o">=</span> <span class="mi">100</span> <span class="o">+</span> <span class="mi">2</span><span class="o">*</span><span class="n">marge</span>
+            <span class="k">elif</span> <span class="n">num_lya</span><span class="p">[</span><span class="n">obj</span><span class="p">]</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">139</span><span class="p">,):</span>
+                <span class="n">S</span> <span class="o">=</span> <span class="mi">80</span> <span class="o">+</span> <span class="mi">2</span><span class="o">*</span><span class="n">marge</span>
+        
+            <span class="k">elif</span> <span class="n">num_lya</span><span class="p">[</span><span class="n">obj</span><span class="p">]</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">43</span><span class="p">,):</span>
+                <span class="n">S</span> <span class="o">=</span> <span class="mi">50</span> <span class="o">+</span> <span class="mi">2</span><span class="o">*</span><span class="n">marge</span>
+                
+            <span class="k">elif</span> <span class="n">num_lya</span><span class="p">[</span><span class="n">obj</span><span class="p">]</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">139</span><span class="p">,</span><span class="mi">257</span><span class="p">,</span><span class="mi">294</span><span class="p">,</span><span class="mi">308</span><span class="p">,</span><span class="mi">311</span><span class="p">,</span><span class="mi">334</span><span class="p">,</span><span class="mi">363</span><span class="p">,</span><span class="mi">430</span><span class="p">,</span><span class="mi">449</span><span class="p">,</span><span class="mi">469</span><span class="p">,</span><span class="mi">474</span><span class="p">,</span><span class="mi">489</span><span class="p">,</span><span class="mi">500</span><span class="p">,</span><span class="mi">514</span><span class="p">,</span><span class="mi">546</span><span class="p">,</span><span class="mi">552</span><span class="p">,</span><span class="mi">568</span><span class="p">,</span><span class="mi">577</span><span class="p">,</span><span class="mi">580</span><span class="p">,</span><span class="mi">581</span><span class="p">):</span>
+                <span class="n">S</span> <span class="o">=</span> <span class="mi">60</span><span class="o">+</span><span class="mi">2</span><span class="o">*</span><span class="n">marge</span>
+        
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">S</span> <span class="o">=</span> <span class="mi">40</span> <span class="o">+</span> <span class="mi">2</span><span class="o">*</span><span class="n">marge</span>
+            
+                
+            <span class="n">Y_src</span><span class="p">,</span> <span class="n">centre</span><span class="p">,</span><span class="n">lmin</span><span class="p">,</span><span class="n">lmax</span><span class="p">,</span><span class="n">xmin</span><span class="p">,</span><span class="n">xmax</span><span class="p">,</span><span class="n">ymin</span><span class="p">,</span><span class="n">ymax</span><span class="p">,</span><span class="n">pos_ligne</span> <span class="o">=</span> <span class="n">extraire_cube</span><span class="p">(</span><span class="n">cube</span><span class="p">,</span> <span class="n">coords_lya</span><span class="p">[:,</span><span class="n">obj</span><span class="p">],</span><span class="n">S</span><span class="p">,</span><span class="n">W_aff</span><span class="p">,</span><span class="n">marge_cube</span><span class="p">,</span> <span class="n">allcube</span> <span class="p">)</span>
+      
+            <span class="c"># Median filtering. </span>
+            <span class="n">ss_cube_medfilt</span> <span class="o">=</span> <span class="n">si</span><span class="o">.</span><span class="n">medfilt</span><span class="p">(</span><span class="n">Y_src</span><span class="p">,(</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">,</span><span class="mi">301</span><span class="p">))</span>
+            <span class="n">Y_ms_wide</span> <span class="o">=</span> <span class="n">Y_src</span> <span class="o">-</span> <span class="n">ss_cube_medfilt</span>
+
+            
+            <span class="n">Y_ms</span> <span class="o">=</span> <span class="n">Y_ms_wide</span><span class="p">[:,:,</span><span class="n">pos_ligne</span><span class="o">-</span><span class="mf">0.5</span><span class="o">*</span><span class="n">W</span><span class="p">:</span><span class="n">pos_ligne</span><span class="o">+</span><span class="mf">0.5</span><span class="o">*</span><span class="n">W</span><span class="p">]</span>
+            
+        
+            <span class="c"># Actual detection</span>
+            <span class="n">res</span><span class="p">,</span> <span class="n">val</span><span class="p">,</span> <span class="n">ests</span><span class="p">,</span> <span class="n">X_init</span><span class="p">,</span> <span class="n">val_init</span> <span class="o">=</span> <span class="n">sd</span><span class="o">.</span><span class="n">detection_strategy</span><span class="p">(</span><span class="n">Y_ms</span><span class="p">,</span> <span class="n">P</span><span class="p">,</span> <span class="n">diag</span><span class="p">,</span> <span class="n">pfa_bright</span><span class="p">,</span> <span class="n">pfa_faint</span><span class="p">,</span> <span class="n">fwhm_courant</span><span class="p">,</span> <span class="n">taille_f</span><span class="p">,</span> <span class="n">beta</span><span class="p">,</span> <span class="n">centre</span><span class="p">)</span>
+            <span class="k">print</span> <span class="s">&#39;...&#39;</span>
+            <span class="n">ind_2d</span> <span class="o">=</span> <span class="n">ests</span>
+            <span class="n">init</span> <span class="o">=</span> <span class="n">X_init</span>
+         
+            <span class="c"># Thresholds for the provided false alarm probability.</span>
+            <span class="n">ksi</span> <span class="o">=</span> <span class="n">st</span><span class="o">.</span><span class="n">chi2</span><span class="o">.</span><span class="n">isf</span><span class="p">(</span><span class="n">PFA</span><span class="p">,</span> <span class="n">df</span><span class="o">=</span><span class="n">X_init</span><span class="o">.</span><span class="n">sum</span><span class="p">())</span>
+            
+            
+            
+            <span class="c">#------- Spectra retrieving ----#</span>
+
+            <span class="n">Y_aff</span> <span class="o">=</span> <span class="n">Y_src</span><span class="c">#cube[ coords_lya[2,obj]-W_aff/2: coords_lya[2,obj]+W_aff/2,:,:]</span>
+            <span class="c">#Y_aff = np.swapaxes(Y_aff,2,0)</span>
+            
+            <span class="c"># Initial detection region</span>
+            <span class="n">reg_init</span> <span class="o">=</span> <span class="n">ma</span><span class="o">.</span><span class="n">masked_array</span><span class="p">(</span><span class="n">Y_aff</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">tile</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">invert</span><span class="p">(</span><span class="n">init</span><span class="p">)[:,:,</span><span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">],</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">,</span><span class="n">W_aff</span><span class="p">)))</span>
+            <span class="n">sp_init</span> <span class="o">=</span> <span class="n">ma</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">ma</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">reg_init</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+            
+            <span class="c"># Outer detected region, connex to the center</span>
+            <span class="n">ma_ext</span> <span class="o">=</span> <span class="n">morph</span><span class="o">.</span><span class="n">binary_propagation</span><span class="p">(</span><span class="n">init</span><span class="p">,</span> <span class="n">mask</span> <span class="o">=</span> <span class="n">res</span><span class="p">)</span>
+            <span class="n">reg_ext</span> <span class="o">=</span> <span class="n">ma</span><span class="o">.</span><span class="n">masked_array</span><span class="p">(</span><span class="n">Y_aff</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">tile</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">invert</span><span class="p">(</span><span class="n">ma_ext</span><span class="p">)[:,:,</span><span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">],</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">,</span><span class="n">W_aff</span><span class="p">)))</span>
+            <span class="n">sp_ext</span> <span class="o">=</span> <span class="n">ma</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">ma</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">reg_ext</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+            
+            <span class="n">ma_tout</span> <span class="o">=</span> <span class="p">(</span><span class="n">res</span><span class="o">+</span><span class="n">init</span><span class="p">)</span><span class="o">&gt;</span><span class="mi">0</span>
+            <span class="c"># Outer detected regions, non-connex to the center</span>
+            <span class="n">ma_ext_pani</span> <span class="o">=</span> <span class="p">(</span><span class="n">res</span><span class="o">*</span><span class="p">(</span><span class="n">ma_ext</span><span class="o">==</span><span class="mi">0</span><span class="p">)</span><span class="o">&gt;</span><span class="mi">0</span><span class="p">)</span>
+            <span class="n">reg_ext_pani</span> <span class="o">=</span> <span class="n">ma</span><span class="o">.</span><span class="n">masked_array</span><span class="p">(</span><span class="n">Y_aff</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">tile</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">invert</span><span class="p">(</span><span class="n">ma_ext_pani</span><span class="p">)[:,:,</span><span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">],</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">,</span><span class="n">W_aff</span><span class="p">)))</span>
+            <span class="n">sp_ext_pani</span> <span class="o">=</span> <span class="n">ma</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">ma</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">reg_ext_pani</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+            
+            <span class="c"># Outside </span>
+            <span class="n">reg_reste</span> <span class="o">=</span> <span class="n">ma</span><span class="o">.</span><span class="n">masked_array</span><span class="p">(</span><span class="n">Y_aff</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">tile</span><span class="p">(</span><span class="n">ma_ext</span><span class="p">[:,:,</span><span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">],</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">,</span><span class="n">W_aff</span><span class="p">)))</span>
+            <span class="n">sp_reste</span> <span class="o">=</span> <span class="n">ma</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">ma</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">reg_reste</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+            <span class="n">sp_reste_ex</span> <span class="o">=</span> <span class="n">Y_aff</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="mi">0</span><span class="p">,:]</span>
+        
+            <span class="n">pos_sp</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span> <span class="n">coords_lya</span><span class="p">[</span><span class="mi">2</span><span class="p">,</span><span class="n">obj</span><span class="p">]</span><span class="o">-</span><span class="n">W_aff</span><span class="o">/</span><span class="mi">2</span><span class="p">,</span> <span class="n">coords_lya</span><span class="p">[</span><span class="mi">2</span><span class="p">,</span><span class="n">obj</span><span class="p">]</span><span class="o">+</span><span class="n">W_aff</span><span class="o">/</span><span class="mi">2</span><span class="p">)</span><span class="o">*</span><span class="n">pas_spectral</span> <span class="o">+</span> <span class="n">lambda_0</span>
+            
+            <span class="n">bruit_tab</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">reg_reste</span><span class="p">,(</span><span class="n">reg_reste</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">**</span><span class="mi">2</span><span class="p">,</span><span class="n">reg_reste</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">2</span><span class="p">]))</span>
+            <span class="n">sigma_bruit</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ma</span><span class="o">.</span><span class="n">cov</span><span class="p">(</span><span class="n">bruit_tab</span><span class="p">,</span><span class="n">rowvar</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        
+            <span class="n">rsb</span> <span class="o">=</span> <span class="mf">10.</span><span class="o">*</span><span class="n">np</span><span class="o">.</span><span class="n">log10</span><span class="p">((</span><span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">sp_ext</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span><span class="o">/</span><span class="n">np</span><span class="o">.</span><span class="n">trace</span><span class="p">(</span><span class="n">sigma_bruit</span><span class="p">))</span>
+        
+        
+            <span class="n">amax</span> <span class="o">=</span><span class="mi">2</span> <span class="o">*</span> <span class="n">sp_ext</span><span class="o">.</span><span class="n">max</span><span class="p">()</span>
+            <span class="n">amin</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="c">#------- Moments retrieving ----#</span>
+        
+            <span class="n">im_ind_est</span><span class="p">,</span><span class="n">im_weight_est</span> <span class="o">=</span> <span class="n">mse</span><span class="o">.</span><span class="n">get_sparse_estimate</span><span class="p">(</span><span class="n">Y_ms</span><span class="p">,</span><span class="n">F</span><span class="p">,</span><span class="n">D</span><span class="p">)</span>
+        
+            <span class="n">flux</span><span class="p">,</span><span class="n">position</span><span class="p">,</span><span class="n">largeur</span> <span class="o">=</span> <span class="n">mse</span><span class="o">.</span><span class="n">get_moments</span><span class="p">(</span><span class="n">im_ind_est</span><span class="p">,</span><span class="n">im_weight_est</span><span class="p">,</span><span class="n">D</span><span class="p">,</span><span class="n">W</span><span class="p">,</span><span class="n">pas</span><span class="p">,</span><span class="n">pas_spectral</span><span class="p">)</span>
+            <span class="c"># normalizing flux</span>
+            <span class="n">flux</span> <span class="o">*=</span> <span class="n">Y_ms</span><span class="p">[</span><span class="n">centre</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span><span class="n">centre</span><span class="p">[</span><span class="mi">1</span><span class="p">],:]</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">/</span><span class="n">flux</span><span class="p">[</span><span class="n">centre</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">-</span><span class="n">marge</span><span class="p">,</span><span class="n">centre</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">-</span><span class="n">marge</span><span class="p">]</span>    
+        
+            <span class="c"># Adjusting positions</span>
+            <span class="n">position</span> <span class="o">=</span> <span class="n">lambda_0</span><span class="o">+</span><span class="p">(</span><span class="n">coords_lya</span><span class="p">[</span><span class="mi">2</span><span class="p">,</span><span class="n">obj</span><span class="p">]</span><span class="o">-</span><span class="n">W</span><span class="o">/</span><span class="mi">2</span> <span class="o">+</span> <span class="n">position</span> <span class="p">)</span><span class="o">*</span><span class="n">pas_spectral</span>
+            <span class="c">#--------------------------------------#</span>
+            <span class="c">#-------Results retrievings------------#</span>
+            <span class="c">#----------(MPDAF Objects)-------------#</span>
+            <span class="c"># 0) Useful data</span>
+
+            <span class="n">li</span> <span class="o">=</span> <span class="n">LAMBDA_LINES</span><span class="p">[</span><span class="n">num_lya</span><span class="p">[</span><span class="n">obj</span><span class="p">]][</span><span class="s">&#39;lambda&#39;</span><span class="p">]</span>
+            
+            <span class="n">arr</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;lambda&#39;</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">LAMBDA_LINES</span><span class="p">[</span><span class="n">num_lya</span><span class="p">[</span><span class="n">obj</span><span class="p">]][</span><span class="s">&#39;lambda&#39;</span><span class="p">]]),</span>
+                    <span class="s">&#39;fwhm&#39;</span><span class="p">:</span> <span class="p">[</span><span class="n">LAMBDA_LINES</span><span class="p">[</span><span class="n">num_lya</span><span class="p">[</span><span class="n">obj</span><span class="p">]][</span><span class="s">&#39;fwhm&#39;</span><span class="p">]]}</span>
+            <span class="n">line</span><span class="o">=</span><span class="n">Table</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">names</span><span class="o">=</span><span class="p">(</span><span class="s">&#39;lambda&#39;</span><span class="p">,</span>  <span class="s">&#39;fwhm&#39;</span><span class="p">))</span>  
+            
+            <span class="n">li_cube</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">((</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">li</span><span class="p">)</span><span class="o">-</span><span class="n">lambda_0</span><span class="p">)</span><span class="o">/</span><span class="n">pas_spectral</span> <span class="o">-</span> <span class="n">lmin</span><span class="p">)</span>
+            <span class="c"># 1) Images (binary + statistics)</span>
+            <span class="n">im_wh</span> <span class="o">=</span> <span class="n">Image</span><span class="p">(</span><span class="n">wcs</span><span class="o">=</span><span class="n">wcs1</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">Y_src</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">T</span><span class="p">)</span>
+            <span class="n">im_nb</span> <span class="o">=</span> <span class="n">Image</span><span class="p">(</span><span class="n">wcs</span><span class="o">=</span><span class="n">wcs1</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">Y_src</span><span class="p">[:,:,</span><span class="n">li_cube</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span><span class="n">li_cube</span><span class="p">[</span><span class="mi">1</span><span class="p">]]</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">T</span><span class="p">)</span>
+            <span class="n">im_det_cont</span> <span class="o">=</span> <span class="n">Image</span><span class="p">(</span><span class="n">wcs</span><span class="o">=</span><span class="n">wcs1</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">T</span><span class="p">)</span>
+            <span class="n">im_det</span> <span class="o">=</span> <span class="n">Image</span><span class="p">(</span><span class="n">wcs</span><span class="o">=</span><span class="n">wcs1</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="p">(</span><span class="n">res</span><span class="o">.</span><span class="n">T</span><span class="o">-</span><span class="n">init</span><span class="o">.</span><span class="n">T</span><span class="p">)</span><span class="o">&gt;</span><span class="mi">0</span><span class="p">)</span>
+            <span class="n">im_det_gal</span> <span class="o">=</span> <span class="n">Image</span><span class="p">(</span><span class="n">wcs</span><span class="o">=</span><span class="n">wcs1</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">init</span><span class="o">.</span><span class="n">T</span><span class="p">)</span>
+            <span class="n">im_det_all</span> <span class="o">=</span> <span class="n">Image</span><span class="p">(</span><span class="n">wcs</span><span class="o">=</span><span class="n">wcs1</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="p">((</span><span class="n">res</span><span class="o">.</span><span class="n">T</span><span class="o">+</span><span class="n">init</span><span class="o">.</span><span class="n">T</span><span class="p">)</span><span class="o">&gt;</span><span class="mi">0</span><span class="p">))</span>
+            
+            <span class="c"># 1b) Moments</span>
+            <span class="n">im_flux</span> <span class="o">=</span> <span class="n">Image</span><span class="p">(</span><span class="n">wcs</span><span class="o">=</span><span class="n">wcs1</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">ma</span><span class="o">.</span><span class="n">filled</span><span class="p">(</span><span class="n">flux</span><span class="o">.</span><span class="n">T</span><span class="p">,</span><span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">))</span>
+            <span class="n">im_position</span> <span class="o">=</span> <span class="n">Image</span><span class="p">(</span><span class="n">wcs</span><span class="o">=</span><span class="n">wcs1</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">ma</span><span class="o">.</span><span class="n">filled</span><span class="p">(</span><span class="n">position</span><span class="o">.</span><span class="n">T</span><span class="p">,</span><span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">))</span>
+            <span class="n">im_largeur</span> <span class="o">=</span> <span class="n">Image</span><span class="p">(</span><span class="n">wcs</span><span class="o">=</span><span class="n">wcs1</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">ma</span><span class="o">.</span><span class="n">filled</span><span class="p">(</span><span class="n">largeur</span><span class="o">.</span><span class="n">T</span><span class="p">,</span><span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">))</span>
+            
+            <span class="n">dic_images</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;MUSE_WHITE&#39;</span><span class="p">:</span><span class="n">im_wh</span><span class="p">,</span> <span class="s">&#39;MUSE_NB&#39;</span><span class="p">:</span><span class="n">im_nb</span><span class="p">,</span> <span class="s">&#39;DET_STAT&#39;</span><span class="p">:</span><span class="n">im_det_cont</span><span class="p">,</span><span class="s">&#39;DET_BIN_ALL&#39;</span><span class="p">:</span><span class="n">im_det_all</span><span class="p">,</span> <span class="s">&#39;DET_BIN_HAL&#39;</span><span class="p">:</span><span class="n">im_det</span><span class="p">,</span><span class="s">&#39;DET_BIN_GAL&#39;</span><span class="p">:</span><span class="n">im_det_gal</span><span class="p">,</span><span class="s">&#39;FLUX&#39;</span><span class="p">:</span><span class="n">im_flux</span><span class="p">,</span> <span class="s">&#39;POSITION&#39;</span><span class="p">:</span><span class="n">im_position</span><span class="p">,</span> <span class="s">&#39;FWHM&#39;</span><span class="p">:</span><span class="n">im_largeur</span><span class="p">}</span>
+            
+            <span class="c"># 2) Detection spectra</span>
+            <span class="n">waveloc</span> <span class="o">=</span> <span class="n">WaveCoord</span><span class="p">(</span><span class="n">cdelt</span><span class="o">=</span><span class="mf">1.25</span><span class="p">,</span> <span class="n">crval</span><span class="o">=</span><span class="n">lambda_0</span> <span class="o">+</span> <span class="p">(</span><span class="n">coords_lya</span><span class="p">[</span><span class="mi">2</span><span class="p">,</span><span class="n">obj</span><span class="p">]</span><span class="o">-</span><span class="n">W_aff</span><span class="o">/</span><span class="mi">2</span><span class="p">)</span><span class="o">*</span><span class="n">pas_spectral</span><span class="p">,</span> <span class="n">cunit</span><span class="o">=</span><span class="s">&#39;Angstrom&#39;</span><span class="p">)</span>
+            <span class="n">spe_centre</span> <span class="o">=</span> <span class="n">Spectrum</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">sp_init</span><span class="p">,</span><span class="n">wave</span><span class="o">=</span><span class="n">waveloc</span><span class="p">)</span>
+            <span class="n">spe_ext</span> <span class="o">=</span> <span class="n">Spectrum</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">sp_ext</span><span class="p">,</span><span class="n">wave</span><span class="o">=</span><span class="n">waveloc</span><span class="p">)</span>
+            <span class="n">spe_ext_pani</span> <span class="o">=</span> <span class="n">Spectrum</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">sp_ext_pani</span><span class="p">,</span><span class="n">wave</span><span class="o">=</span><span class="n">waveloc</span><span class="p">)</span>
+            <span class="n">spe_reste</span><span class="o">=</span> <span class="n">Spectrum</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">sp_reste</span><span class="p">,</span><span class="n">wave</span><span class="o">=</span><span class="n">waveloc</span><span class="p">)</span>  
+            <span class="n">spe_reste_ex</span><span class="o">=</span> <span class="n">Spectrum</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="n">sp_reste_ex</span><span class="p">,</span><span class="n">wave</span><span class="o">=</span><span class="n">waveloc</span><span class="p">)</span>  
+            
+            <span class="n">dic_spectres</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;CENTER&#39;</span><span class="p">:</span><span class="n">spe_centre</span><span class="p">,</span> <span class="s">&#39;PERIPH_ADJ&#39;</span><span class="p">:</span><span class="n">spe_ext</span><span class="p">,</span><span class="s">&#39;PERIPH_NOADJ&#39;</span><span class="p">:</span><span class="n">spe_ext_pani</span><span class="p">,</span> <span class="s">&#39;EXT&#39;</span><span class="p">:</span><span class="n">spe_reste</span><span class="p">,</span> <span class="s">&#39;EXTEX&#39;</span><span class="p">:</span><span class="n">spe_reste_ex</span><span class="p">}</span><span class="c"># &#39;MUSE_NB&#39;:im_nb, &#39;DET_CONT&#39;:im_det_cont, &#39;DET&#39;:im_det}</span>
+            
+        
+            <span class="n">objet</span><span class="o">=</span><span class="n">Source</span><span class="o">.</span><span class="n">from_data</span><span class="p">(</span><span class="n">ID</span><span class="o">=</span><span class="n">num_lya</span><span class="p">[</span><span class="n">obj</span><span class="p">],</span><span class="n">lines</span><span class="o">=</span><span class="n">line</span><span class="p">,</span><span class="n">ra</span><span class="o">=</span><span class="n">ra_lya</span><span class="p">[</span><span class="n">obj</span><span class="p">],</span><span class="n">dec</span><span class="o">=</span><span class="n">dec_lya</span><span class="p">[</span><span class="n">obj</span><span class="p">],</span><span class="n">origin</span><span class="o">=</span><span class="p">(</span><span class="s">&#39;HEOLHT&#39;</span><span class="p">,</span> <span class="n">version</span><span class="p">,</span> <span class="s">&#39;HDFS-1.24&#39;</span><span class="p">),</span> <span class="n">images</span><span class="o">=</span><span class="n">dic_images</span><span class="p">,</span> <span class="n">spectra</span><span class="o">=</span><span class="n">dic_spectres</span><span class="p">)</span>
+            <span class="n">objet</span><span class="o">.</span><span class="n">add_comment</span><span class="p">(</span><span class="n">comment</span><span class="o">=</span><span class="s">&#39;Flux, largeur et position sont indicatifs&#39;</span><span class="p">,</span><span class="n">author</span><span class="o">=</span><span class="s">&#39;JBC&#39;</span><span class="p">)</span>
+            <span class="n">objet</span><span class="o">.</span><span class="n">fwhm_pix</span><span class="o">=</span> <span class="p">(</span><span class="n">fwhm_courant</span><span class="p">,</span><span class="s">&#39;FWHM_PIX&#39;</span><span class="p">)</span>
+            <span class="n">objet</span><span class="o">.</span><span class="n">im_size</span> <span class="o">=</span> <span class="p">(</span><span class="n">S</span><span class="p">,</span><span class="s">&#39;IM_SIZE&#39;</span><span class="p">)</span>
+            <span class="n">objet</span><span class="o">.</span><span class="n">snr_est</span> <span class="o">=</span> <span class="p">(</span><span class="n">rsb</span><span class="p">,</span><span class="s">&#39;SNR_EST&#39;</span><span class="p">)</span>
+            <span class="n">objet</span><span class="o">.</span><span class="n">im_margin</span> <span class="o">=</span> <span class="p">(</span><span class="n">marge</span><span class="p">,</span><span class="s">&#39;IM_MARGIN&#39;</span><span class="p">)</span>
+            <span class="n">objet</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">nom_dossier</span><span class="o">+</span><span class="s">&#39;ID&#39;</span><span class="o">+</span><span class="nb">str</span><span class="p">(</span><span class="n">num_lya</span><span class="p">[</span><span class="n">obj</span><span class="p">])</span><span class="o">+</span><span class="s">&#39;.fits&#39;</span><span class="p">)</span>
+        
+            <span class="c">#-------------------------------------#</span>
+            <span class="c">#-------- Display   ------------------#</span>
+            <span class="c">#-------------------------------------#</span>
+            <span class="c"># Text box</span>
+            <span class="n">props</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">boxstyle</span><span class="o">=</span><span class="s">&#39;round&#39;</span><span class="p">,</span> <span class="n">facecolor</span><span class="o">=</span><span class="s">&#39;wheat&#39;</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.5</span><span class="p">)</span>
+            <span class="n">texte</span> <span class="o">=</span> <span class="s">&#39;ID #</span><span class="si">%d</span><span class="s"> </span><span class="se">\n</span><span class="s"> $z = </span><span class="si">%.2f</span><span class="s">$ </span><span class="se">\n</span><span class="s"> $</span><span class="se">\\</span><span class="s">hat{\mathrm{SNR}} =</span><span class="si">%.2f</span><span class="s"> \mathrm{dB}$ &#39;</span><span class="o">%</span><span class="p">(</span><span class="n">num_lya</span><span class="p">[</span><span class="n">obj</span><span class="p">],</span> <span class="n">z_lya</span><span class="p">[</span><span class="n">obj</span><span class="p">],</span> <span class="n">rsb</span> <span class="p">)</span><span class="c">#&#39; +str(num_lya[obj])+ &#39; \n z = &#39;+ str(z_lya[obj]) + &#39;\n SNR = &#39;+str(rsb)+&#39;dB&#39;</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">suptitle</span><span class="p">(</span><span class="n">texte</span><span class="p">,</span> <span class="n">bbox</span><span class="o">=</span><span class="n">props</span><span class="p">,</span><span class="n">fontsize</span><span class="o">=</span><span class="mi">14</span><span class="p">)</span>
+        
+            <span class="c"># 1st image: white image + catalog sources in the projected neighborhood</span>
+            <span class="n">ax1</span> <span class="o">=</span> <span class="n">Fig</span><span class="o">.</span><span class="n">add_subplot</span><span class="p">(</span><span class="n">nb_li</span><span class="p">,</span><span class="n">nb_col</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+        
+            <span class="c">## All sources :</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span><span class="n">coords</span><span class="p">[</span><span class="mi">0</span><span class="p">,:]</span><span class="o">-</span><span class="n">xmin</span><span class="p">,</span> <span class="n">coords</span><span class="p">[</span><span class="mi">1</span><span class="p">,:]</span><span class="o">-</span><span class="n">ymin</span><span class="p">,</span> <span class="n">s</span><span class="o">=</span><span class="mi">75</span><span class="p">,</span> <span class="n">c</span><span class="o">=</span><span class="s">&#39;b&#39;</span><span class="p">);</span>
+            <span class="c">## All sources with a close redshift (+/- 0.1)</span>
+            <span class="n">indices</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">coords</span><span class="p">[</span><span class="mi">2</span><span class="p">,:]</span> <span class="o">-</span> <span class="n">coords</span><span class="p">[</span><span class="mi">2</span><span class="p">,</span><span class="n">num_lya</span><span class="p">[</span><span class="n">obj</span><span class="p">]])</span><span class="o">&lt;</span><span class="mf">0.1</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span><span class="n">coords</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span><span class="n">indices</span><span class="p">]</span><span class="o">-</span><span class="n">xmin</span><span class="p">,</span> <span class="n">coords</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span><span class="n">indices</span><span class="p">]</span><span class="o">-</span><span class="n">ymin</span><span class="p">,</span> <span class="n">s</span><span class="o">=</span><span class="mi">150</span><span class="p">,</span> <span class="n">c</span><span class="o">=</span><span class="s">&#39;r&#39;</span><span class="p">);</span>
+            <span class="n">objet</span><span class="o">.</span><span class="n">show_ima</span><span class="p">(</span><span class="n">ax1</span><span class="p">,</span> <span class="s">&#39;MUSE_WHITE&#39;</span><span class="p">,</span><span class="n">cuts</span><span class="o">=</span><span class="p">(</span><span class="n">amin</span><span class="p">,</span> <span class="n">amax</span><span class="p">))</span>
+        
+            <span class="n">plt</span><span class="o">.</span><span class="n">axis</span><span class="p">(</span><span class="s">&#39;on&#39;</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s">&#39;Image blanche&#39;</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">xlim</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span><span class="n">S</span><span class="p">]);</span> <span class="n">plt</span><span class="o">.</span><span class="n">ylim</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span><span class="n">S</span><span class="p">])</span>
+            <span class="c">#-------------------------------------#</span>
+            <span class="c"># Second image : NB image + detection contours</span>
+            <span class="n">ax2</span> <span class="o">=</span> <span class="n">Fig</span><span class="o">.</span><span class="n">add_subplot</span><span class="p">(</span><span class="n">nb_li</span><span class="p">,</span><span class="n">nb_col</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+            <span class="n">objet</span><span class="o">.</span><span class="n">show_ima</span><span class="p">(</span><span class="n">ax2</span><span class="p">,</span> <span class="s">&#39;MUSE_NB&#39;</span><span class="p">,</span><span class="n">cuts</span><span class="o">=</span><span class="p">(</span><span class="n">amin</span><span class="p">,</span> <span class="n">amax</span><span class="p">))</span>
+            <span class="n">ax2</span><span class="o">.</span><span class="n">axis</span><span class="p">(</span><span class="s">&#39;on&#39;</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">contour</span><span class="p">((</span><span class="n">res</span><span class="o">+</span><span class="n">init</span><span class="o">&gt;</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span><span class="n">colors</span><span class="o">=</span><span class="s">&#39;#760000&#39;</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">contour</span><span class="p">((</span><span class="n">init</span><span class="p">)</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span><span class="n">colors</span><span class="o">=</span><span class="s">&#39;r&#39;</span><span class="p">,</span><span class="n">linestyle</span><span class="o">=</span><span class="s">&#39;dashed&#39;</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s">&#39;NB, Detection gal. ($P_\mathrm{FA}=10^{-2}$) et halo ($\mathrm{max}(P_\mathrm{FA})=10^{-4}$)&#39;</span><span class="p">)</span>
+        
+            <span class="c">#-------------------------------------#</span>
+            <span class="c"># 3rd image : statistic map and detection contour for various PFA.</span>
+            <span class="n">ax3</span> <span class="o">=</span> <span class="n">Fig</span><span class="o">.</span><span class="n">add_subplot</span><span class="p">(</span><span class="n">nb_li</span><span class="p">,</span><span class="n">nb_col</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+            <span class="n">val_aff_max</span> <span class="o">=</span> <span class="n">ma</span><span class="o">.</span><span class="n">masked_array</span><span class="p">(</span><span class="n">val</span><span class="p">,</span><span class="n">init</span><span class="o">!=</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">min</span><span class="p">()</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">imshow</span><span class="p">(</span><span class="n">val</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">origin</span><span class="o">=</span><span class="s">&#39;lower&#39;</span><span class="p">,</span><span class="n">vmin</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span><span class="n">vmax</span><span class="o">=</span><span class="n">val_aff_max</span><span class="p">,</span><span class="n">cmap</span><span class="o">=</span><span class="n">colmap</span><span class="p">,</span><span class="n">interpolation</span><span class="o">=</span><span class="s">&#39;nearest&#39;</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">contour</span><span class="p">(</span><span class="n">val</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">ksi</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s">&#39;Stat. et niveau ($10^{-4}</span><span class="se">\\</span><span class="s">leq \mathrm{max}(P_{FA}) </span><span class="se">\\</span><span class="s">leq 10^{-1}$)&#39;</span><span class="p">)</span>
+            <span class="n">ax3</span><span class="o">.</span><span class="n">axis</span><span class="p">(</span><span class="s">&#39;on&#39;</span><span class="p">)</span>
+            <span class="c">#-------------------------------------#</span>
+            <span class="c"># 4th image (second line) : spectra</span>
+            <span class="n">ax45</span> <span class="o">=</span> <span class="n">Fig</span><span class="o">.</span><span class="n">add_subplot</span><span class="p">(</span><span class="n">nb_li</span><span class="p">,</span><span class="n">nb_col</span><span class="p">,</span> <span class="p">(</span><span class="mi">4</span><span class="p">,</span><span class="mi">5</span><span class="p">))</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s">&#39;Spectres par region&#39;</span><span class="p">)</span>
+            <span class="n">ax45</span><span class="o">.</span><span class="n">axis</span><span class="p">(</span><span class="s">&#39;on&#39;</span><span class="p">)</span>
+
+            <span class="n">objet</span><span class="o">.</span><span class="n">show_spec</span><span class="p">(</span><span class="n">ax45</span><span class="p">,</span> <span class="s">&#39;CENTER&#39;</span><span class="p">,</span><span class="n">label</span><span class="o">=</span><span class="s">&#39;Centre&#39;</span><span class="p">)</span>
+            <span class="n">objet</span><span class="o">.</span><span class="n">show_spec</span><span class="p">(</span><span class="n">ax45</span><span class="p">,</span> <span class="s">&#39;PERIPH_ADJ&#39;</span><span class="p">,</span><span class="n">label</span><span class="o">=</span><span class="s">&#39;Etendu connexe&#39;</span><span class="p">)</span>
+            <span class="n">objet</span><span class="o">.</span><span class="n">show_spec</span><span class="p">(</span><span class="n">ax45</span><span class="p">,</span> <span class="s">&#39;PERIPH_NOADJ&#39;</span><span class="p">,</span><span class="n">label</span><span class="o">=</span><span class="s">&#39;E. non connexe&#39;</span><span class="p">)</span>
+            <span class="n">objet</span><span class="o">.</span><span class="n">show_spec</span><span class="p">(</span><span class="n">ax45</span><span class="p">,</span> <span class="s">&#39;EXT&#39;</span><span class="p">,</span><span class="n">label</span><span class="o">=</span><span class="s">&#39;Exterieur&#39;</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">xlim</span><span class="p">(</span><span class="n">pos_sp</span><span class="o">.</span><span class="n">min</span><span class="p">(),</span><span class="n">pos_sp</span><span class="o">.</span><span class="n">max</span><span class="p">())</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
+            <span class="c">#-------------------------------------#</span>
+            <span class="c"># 5th image : FWHM of the FSF</span>
+            <span class="n">ax6</span> <span class="o">=</span> <span class="n">Fig</span><span class="o">.</span><span class="n">add_subplot</span><span class="p">(</span><span class="n">nb_li</span><span class="p">,</span><span class="n">nb_col</span><span class="p">,</span><span class="mi">6</span><span class="p">)</span>
+        
+            <span class="n">F1</span> <span class="o">=</span> <span class="n">nbp</span><span class="o">.</span><span class="n">Moffat</span><span class="p">(</span><span class="n">S</span><span class="o">+</span><span class="mi">1</span><span class="p">,</span> <span class="mf">0.75</span><span class="o">*</span><span class="mi">5</span><span class="p">,</span><span class="n">beta</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">imshow</span><span class="p">(</span><span class="n">F1</span><span class="p">,</span> <span class="n">interpolation</span> <span class="o">=</span> <span class="s">&#39;Nearest&#39;</span><span class="p">,</span><span class="n">vmin</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">cmap</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">cm</span><span class="o">.</span><span class="n">gray_r</span><span class="p">,</span><span class="n">origin</span><span class="o">=</span><span class="s">&#39;lower&#39;</span><span class="p">)</span> <span class="p">;</span> 
+            <span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s">&#39;FSF et sa FWHM pour $</span><span class="se">\\</span><span class="s">lambda_0$&#39;</span><span class="p">)</span> <span class="p">;</span> 
+            <span class="n">circle1</span><span class="o">=</span><span class="n">plt</span><span class="o">.</span><span class="n">Circle</span><span class="p">((</span><span class="nb">int</span><span class="p">(</span><span class="n">S</span><span class="o">/</span><span class="mi">2</span><span class="p">),</span><span class="nb">int</span><span class="p">(</span><span class="n">S</span><span class="o">/</span><span class="mi">2</span><span class="p">)),</span><span class="n">fwhm_courant</span><span class="p">,</span><span class="n">color</span><span class="o">=</span><span class="s">&#39;r&#39;</span><span class="p">,</span><span class="n">fill</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+            <span class="n">ax6</span><span class="o">.</span><span class="n">add_artist</span><span class="p">(</span><span class="n">circle1</span><span class="p">)</span>
+                        
+            <span class="c">#-------- Moments -------------#</span>
+            <span class="c">## Displayed on the 6th, 7th and 8th image, last line.</span>
+            <span class="n">ax7</span> <span class="o">=</span> <span class="n">Fig</span><span class="o">.</span><span class="n">add_subplot</span><span class="p">(</span><span class="n">nb_li</span><span class="p">,</span><span class="n">nb_col</span><span class="p">,</span> <span class="mi">7</span><span class="p">)</span>
+            <span class="n">detec</span><span class="o">=</span> <span class="p">(</span><span class="n">res</span><span class="o">+</span><span class="n">init</span><span class="o">&gt;</span><span class="mi">0</span><span class="p">)</span>
+            <span class="n">detec</span> <span class="o">=</span> <span class="n">detec</span><span class="p">[</span><span class="n">marge</span><span class="p">:</span><span class="n">S</span><span class="o">-</span><span class="n">marge</span><span class="p">,</span><span class="n">marge</span><span class="p">:</span><span class="n">S</span><span class="o">-</span><span class="n">marge</span><span class="p">]</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s">&#39;q (pixel)&#39;</span><span class="p">);</span> <span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s">&#39;p (pixel)&#39;</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">imshow</span><span class="p">(</span><span class="n">flux</span><span class="o">.</span><span class="n">T</span><span class="p">,</span><span class="n">interpolation</span><span class="o">=</span> <span class="s">&#39;nearest&#39;</span><span class="p">,</span> <span class="n">vmin</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">cmap</span><span class="o">=</span><span class="n">plt</span><span class="o">.</span><span class="n">cm</span><span class="o">.</span><span class="n">gray_r</span><span class="p">,</span><span class="n">origin</span><span class="o">=</span><span class="s">&#39;lower&#39;</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s">&#39; Flux estime&#39;</span><span class="p">)</span>
+            <span class="n">ax7</span><span class="o">.</span><span class="n">axis</span><span class="p">(</span><span class="s">&#39;on&#39;</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">colorbar</span><span class="p">(</span><span class="n">fraction</span><span class="o">=</span><span class="mf">0.046</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="mf">0.04</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">contour</span><span class="p">(</span><span class="n">detec</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span><span class="n">linewidths</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span><span class="n">colors</span><span class="o">=</span><span class="s">&#39;#760000&#39;</span><span class="p">)</span>
+            
+            <span class="n">ax8</span> <span class="o">=</span> <span class="n">Fig</span><span class="o">.</span><span class="n">add_subplot</span><span class="p">(</span><span class="n">nb_li</span><span class="p">,</span><span class="n">nb_col</span><span class="p">,</span> <span class="mi">8</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">imshow</span><span class="p">(</span><span class="n">position</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">interpolation</span><span class="o">=</span> <span class="s">&#39;nearest&#39;</span><span class="p">,</span><span class="n">cmap</span><span class="o">=</span><span class="n">plt</span><span class="o">.</span><span class="n">cm</span><span class="o">.</span><span class="n">Spectral</span><span class="p">,</span><span class="n">origin</span><span class="o">=</span><span class="s">&#39;lower&#39;</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s">&#39;q (pixel)&#39;</span><span class="p">);</span> <span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s">&#39;p (pixel)&#39;</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">colorbar</span><span class="p">(</span><span class="n">fraction</span><span class="o">=</span><span class="mf">0.046</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="mf">0.04</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s">&#39;Position estimee&#39;</span><span class="p">)</span>
+            <span class="n">ax8</span><span class="o">.</span><span class="n">axis</span><span class="p">(</span><span class="s">&#39;on&#39;</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">contour</span><span class="p">(</span><span class="n">detec</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span><span class="n">linewidths</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span><span class="n">colors</span><span class="o">=</span><span class="s">&#39;w&#39;</span><span class="p">)</span>
+        
+            <span class="n">ax9</span> <span class="o">=</span> <span class="n">Fig</span><span class="o">.</span><span class="n">add_subplot</span><span class="p">(</span><span class="n">nb_li</span><span class="p">,</span><span class="n">nb_col</span><span class="p">,</span> <span class="mi">9</span><span class="p">)</span>
+            <span class="n">objet</span><span class="o">.</span><span class="n">show_ima</span><span class="p">(</span><span class="n">ax9</span><span class="p">,</span> <span class="s">&#39;FWHM&#39;</span><span class="p">,</span><span class="n">cmap</span><span class="o">=</span><span class="n">plt</span><span class="o">.</span><span class="n">cm</span><span class="o">.</span><span class="n">jet</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">imshow</span><span class="p">(</span><span class="n">largeur</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">interpolation</span> <span class="o">=</span> <span class="s">&#39;nearest&#39;</span><span class="p">,</span><span class="n">cmap</span><span class="o">=</span><span class="n">plt</span><span class="o">.</span><span class="n">cm</span><span class="o">.</span><span class="n">coolwarm</span><span class="p">,</span><span class="n">origin</span><span class="o">=</span><span class="s">&#39;lower&#39;</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s">&#39;q (pixel)&#39;</span><span class="p">);</span> <span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s">&#39;p (pixel)&#39;</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">colorbar</span><span class="p">(</span><span class="n">fraction</span><span class="o">=</span><span class="mf">0.046</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="mf">0.04</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s">&#39;FWHM estimee&#39;</span><span class="p">)</span>
+            <span class="n">ax9</span><span class="o">.</span><span class="n">axis</span><span class="p">(</span><span class="s">&#39;on&#39;</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">tight_layout</span><span class="p">()</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">contour</span><span class="p">(</span><span class="n">detec</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span><span class="n">linewidths</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span><span class="n">colors</span><span class="o">=</span><span class="s">&#39;w&#39;</span><span class="p">)</span>
+        
+            <span class="n">plt</span><span class="o">.</span><span class="n">subplots_adjust</span><span class="p">(</span><span class="n">top</span><span class="o">=</span><span class="mf">0.85</span><span class="p">)</span>
+
+            <span class="n">num_plot</span> <span class="o">+=</span><span class="mi">1</span>
+            <span class="n">doc_pdf</span><span class="o">.</span><span class="n">savefig</span><span class="p">(</span><span class="n">Fig</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">close</span><span class="p">(</span><span class="n">Fig</span><span class="p">)</span>
+            
+          
+    <span class="n">end</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+    <span class="k">print</span> <span class="nb">str</span><span class="p">(</span><span class="n">end</span><span class="o">-</span><span class="n">start</span><span class="p">)</span> <span class="o">+</span> <span class="s">&#39; secondes, &#39;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">num_plot</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span> <span class="o">+</span><span class="s">&#39; objets&#39;</span>
+    <span class="k">print</span> <span class="nb">str</span><span class="p">((</span><span class="n">end</span><span class="o">-</span><span class="n">start</span><span class="p">)</span><span class="o">/</span><span class="p">(</span><span class="n">num_plot</span><span class="o">-</span><span class="mi">1</span><span class="p">))</span> <span class="o">+</span> <span class="s">&#39; secondes par objet&#39;</span>
+    <span class="n">doc_pdf</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">HEOLTH 1.3 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &copy; Copyright 2015, Jean-Baptiste Courbot.
+      Last updated on Dec 02, 2015.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.3.1.
+    </div>
+  </body>
+</html>
