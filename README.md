@@ -34,6 +34,12 @@ RUNNING
 To run a demo of the files, please run the python file './lib/demo.py'.
 This file should be self-explanatory with regards to the input parameters and the methods from the paper.
 
+**************************************
+DOCUMENTATION
+
+The sphinx-generated documentation is available from ./doc/_build/html/index.html.
+
+
 
 **************************************
 UPDATES AND CONTRIBUTIONS
