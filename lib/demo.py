@@ -55,7 +55,7 @@ if __name__=='__main__':
     
     
     
-    SNR = np.array([-7])
+    SNR = np.array([-12])
     
     
     F_range = np.array([1,3,5,7,9,11])
@@ -63,6 +63,7 @@ if __name__=='__main__':
     marge = int(taille_f/2)
     
     test_simu = 1
+    multipose = True
     
     
     pfa_bright = 0.001
@@ -77,7 +78,11 @@ if __name__=='__main__':
         # let us insert Nan :
         #Y[5,5,:,:] = np.nan 
         lambda_0 = 16
-        Y_src = Y.mean(axis=3)
+        
+        if multipose:
+            Y_src = np.copy(Y)#Y.mean(axis=3)
+        else:
+            Y_src = Y.mean(axis=3)
         
         #dat= np.load("../data/empty_cubes.npz")
         empty_cube=snr_diff_dec*st.norm.rvs(loc=0,scale=1,size=(S,S,W))#np.swapaxes(dat['empty_cube'],0,2)
@@ -114,16 +119,18 @@ if __name__=='__main__':
     
     Xe1,ve1,vem1,Xi,vi = sdp.detection_strategy(params) 
     
-    #%%
-    reg_init = ma.masked_array(Y_src, np.tile((Xi==0)[:,:,np.newaxis], (1,1,Y_src.shape[2])))
-    sp_init = ma.mean(ma.mean(reg_init, axis=0), axis=0)
-
-    reg_ext = ma.masked_array(Y_src, np.tile(((Xe1-Xi)==0)[:,:,np.newaxis], (1,1,Y_src.shape[2])))
-    sp_ext = ma.mean(ma.mean(reg_ext, axis=0), axis=0)
     
-    ma_ext = (Xe1 - Xi)
-    reg_reste = ma.masked_array(Y_src, np.tile(ma_ext[:,:,np.newaxis], (1,1,Y_src.shape[2])))
-    sp_reste = ma.mean(ma.mean(reg_reste, axis=0), axis=0)
+   
+    #%%
+#    reg_init = ma.masked_array(Y_src, np.tile((Xi==0)[:,:,np.newaxis], (1,1,Y_src.shape[2])))
+#    sp_init = ma.mean(ma.mean(reg_init, axis=0), axis=0)
+#
+#    reg_ext = ma.masked_array(Y_src, np.tile(((Xe1-Xi)==0)[:,:,np.newaxis], (1,1,Y_src.shape[2])))
+#    sp_ext = ma.mean(ma.mean(reg_ext, axis=0), axis=0)
+#    
+#    ma_ext = (Xe1 - Xi)
+#    reg_reste = ma.masked_array(Y_src, np.tile(ma_ext[:,:,np.newaxis], (1,1,Y_src.shape[2])))
+#    sp_reste = ma.mean(ma.mean(reg_reste, axis=0), axis=0)
     
     #%%    
 #    im_ind_est,im_weight_est = mse.get_sparse_estimate(params) # pb ici !!
@@ -148,7 +155,10 @@ if __name__=='__main__':
     
     
     plt.subplot(nb_li, nb_col,1) ;
-    plt.imshow(Y_src.mean(axis=2).T, cmap=plt.cm.gray_r,origin='lower', interpolation='nearest',vmin=0)
+    if multipose:
+        plt.imshow(Y_src.mean(axis=(2,3)).T, cmap=plt.cm.gray_r,origin='lower', interpolation='nearest',vmin=0)
+    else:            
+        plt.imshow(Y_src.mean(axis=2).T, cmap=plt.cm.gray_r,origin='lower', interpolation='nearest',vmin=0)
     if test_simu==1:
         plt.contour(gal.T,1,linestyles='-',colors='#cc0000',linewidths=1.5);
         plt.contour(halo.T,1,linestyles='-',colors='#1d829e',linewidths=3)
@@ -156,7 +166,10 @@ if __name__=='__main__':
     plt.title('White image and ground truth')
     
     plt.subplot(nb_li, nb_col,2) ;
-    plt.imshow(Y_src[:,:,lambda_0-3:lambda_0+3].mean(axis=2).T, cmap=plt.cm.gray_r,origin='lower', interpolation='nearest',vmin=0)
+    if multipose:
+        plt.imshow(Y_src[:,:,lambda_0-3:lambda_0+3].mean(axis=(2,3)).T, cmap=plt.cm.gray_r,origin='lower', interpolation='nearest',vmin=0)
+    else:
+        plt.imshow(Y_src[:,:,lambda_0-3:lambda_0+3].mean(axis=2).T, cmap=plt.cm.gray_r,origin='lower', interpolation='nearest',vmin=0)
     plt.contour(Xi.T,1,linestyles='-',colors='#cc0000',linewidths=1.5);
     plt.contour(Xe1.T,1,linestyles='-',colors='#1d829e',linewidths=3)
     plt.title('Narrow-band Image, Detection Maps')
@@ -169,134 +182,156 @@ if __name__=='__main__':
     plt.contour(ve1.T, ksi)    
 
     
-    #%%
-    plt.subplot(nb_li,nb_col,(nb_col+1,nb_col+2))
-    sp_range = np.arange(0,126,1.25)
+    #%% let us investigate simple versus multiple observations
+    import initial_detection_pose as idp
+    import detection_preprocessing as nbp
     
-    plt.plot(sp_reste,'-',color='#cccccc',linewidth=1,label='Outer region')
-    plt.plot(sp_init,':',color='#cc0000',linewidth=2.5,label='Bright region')
-    plt.plot(sp_ext,'-',color='#1d829e',linewidth=1.5, label='Faint spectra')
-    plt.legend(loc='upper right',title='Integrated spectra on:')
-    plt.grid()
-    plt.title('Individual Spectra')
-    plt.ylabel('Intensity')
-    plt.xlabel('Bandwidth (1.25 Angstrom) ')
-    plt.xlim((0,sp_init.size))
+    params.P = 54
+    S = params.S
+    W = params.W 
+    P = params.P
+   
+   
+    # Dictionnary
+    D = params.D#nbp.gen_dic(W, P=P)
+    # Field Spread Function
+    F = params.F#nbp.Moffat(taille_f, FWHM,beta)
     
-    
-#
-#    plt.subplot(nb_li,nb_col,7)
-#    plt.imshow(flux.T, cmap=plt.cm.gray_r,origin='lower', interpolation='nearest',vmin=0)
-#    plt.xlabel('q (pixel)'); plt.ylabel('p (pixel)')
-#    plt.colorbar(fraction=0.046, pad=0.04)
-#    plt.title('Flux estime')
-#    plt.contour(detec.T, 1,linewidths=2,colors='w')
-#    
-#    plt.subplot(nb_li,nb_col,8)
-#    plt.imshow(position.T, cmap=plt.cm.Spectral,origin='lower', interpolation='nearest',vmin=0)
-#    plt.xlabel('q (pixel)'); plt.ylabel('p (pixel)')
-#    plt.colorbar(fraction=0.046, pad=0.04)
-#    plt.title('Position estimee')
-#
-#    plt.contour(detec.T, 1,linewidths=2,colors='w')
-#    
-#    
-#    plt.subplot(nb_li,nb_col,9)
-#    plt.imshow(largeur.T, cmap=plt.cm.coolwarm,origin='lower', interpolation='nearest',vmin=0)
-#    plt.xlabel('q (pixel)'); plt.ylabel('p (pixel)')
-#    plt.colorbar(fraction=0.046, pad=0.04)
-#    plt.title('FWHM estimee')
-#
-#    plt.contour(detec.T, 1,linewidths=2,colors='w')
-    
-    plt.tight_layout()
-    
-#%% Display results of step 1 alone
 
-#plt.figure(figsize=(10,5))
+    
+    # 1) Data whitening
+    Y_src = idp.whitening(params) #ignoring nans
+    
+    # 2) Data reshaping for spatial, observation features.
+    Y_3d, D_3d = nbp.replique_3d_pose(Y_src, F,D, P = P)    #keeping nans
+    #%%
+#    plt.subplot(nb_li,nb_col,(nb_col+1,nb_col+2))
+#    sp_range = np.arange(0,126,1.25)
+#    
+#    plt.plot(sp_reste,'-',color='#cccccc',linewidth=1,label='Outer region')
+#    plt.plot(sp_init,':',color='#cc0000',linewidth=2.5,label='Bright region')
+#    plt.plot(sp_ext,'-',color='#1d829e',linewidth=1.5, label='Faint spectra')
+#    plt.legend(loc='upper right',title='Integrated spectra on:')
+#    plt.grid()
+#    plt.title('Individual Spectra')
+#    plt.ylabel('Intensity')
+#    plt.xlabel('Bandwidth (1.25 Angstrom) ')
+#    plt.xlim((0,sp_init.size))
+#    
+#    
+##
+##    plt.subplot(nb_li,nb_col,7)
+##    plt.imshow(flux.T, cmap=plt.cm.gray_r,origin='lower', interpolation='nearest',vmin=0)
+##    plt.xlabel('q (pixel)'); plt.ylabel('p (pixel)')
+##    plt.colorbar(fraction=0.046, pad=0.04)
+##    plt.title('Flux estime')
+##    plt.contour(detec.T, 1,linewidths=2,colors='w')
+##    
+##    plt.subplot(nb_li,nb_col,8)
+##    plt.imshow(position.T, cmap=plt.cm.Spectral,origin='lower', interpolation='nearest',vmin=0)
+##    plt.xlabel('q (pixel)'); plt.ylabel('p (pixel)')
+##    plt.colorbar(fraction=0.046, pad=0.04)
+##    plt.title('Position estimee')
+##
+##    plt.contour(detec.T, 1,linewidths=2,colors='w')
+##    
+##    
+##    plt.subplot(nb_li,nb_col,9)
+##    plt.imshow(largeur.T, cmap=plt.cm.coolwarm,origin='lower', interpolation='nearest',vmin=0)
+##    plt.xlabel('q (pixel)'); plt.ylabel('p (pixel)')
+##    plt.colorbar(fraction=0.046, pad=0.04)
+##    plt.title('FWHM estimee')
+##
+##    plt.contour(detec.T, 1,linewidths=2,colors='w')
+#    
+#    plt.tight_layout()
+#    
+##%% Display results of step 1 alone
 #
+##plt.figure(figsize=(10,5))
+##
+##
+#reg_init2 = ma.masked_array(source_gal, np.tile((gal==0)[:,:,np.newaxis], (1,1,Y_src.shape[2])))
+#sp_init2 = ma.mean(ma.mean(reg_init2, axis=0), axis=0)
+#sp_gal = sp_init2-sp_init2[0]
+##
+##plt.subplot(1,2,1)
+##plt.imshow(Y_src[:,:,lambda_0-3:lambda_0+3].mean(axis=2).T, cmap=plt.cm.gray,origin='lower', interpolation='nearest')
+##plt.contour(gal.T,1,linestyles='-',colors='b',linewidths=1.5);
+##plt.contour(Xi.T,1,linestyles='-',colors='#cc0000',linewidths=1.5);
+##
+##
+##plt.subplot(1,2,2)
+##
+##plt.plot(sp_init2/snr_diff_dec,':',color='b',linewidth=2.5,label='Bright region')
+##plt.plot(sp_init,':',color='#cc0000',linewidth=2.5,label='Bright region')
+##
+##from matplotlib2tikz import save as tikz_save
+##
+##tikz_save('/home/miv/courbot/Dropbox/Manuscrit/II/II-3/figures/test_init_ex.tex')
+##
+###%%
 #
-reg_init2 = ma.masked_array(source_gal, np.tile((gal==0)[:,:,np.newaxis], (1,1,Y_src.shape[2])))
-sp_init2 = ma.mean(ma.mean(reg_init2, axis=0), axis=0)
-sp_gal = sp_init2-sp_init2[0]
+##plt.figure(figsize=(10,5))
+##
+##
+#reg_init2 = ma.masked_array(source_halo, np.tile((halo==0)[:,:,np.newaxis], (1,1,Y_src.shape[2])))
+#sp_init2 = ma.mean(ma.mean(reg_init2, axis=0), axis=0)
+#sp_halo = sp_init2-sp_init2[0]
+##
+##plt.subplot(1,2,1)
+##plt.imshow(Y_src[:,:,lambda_0-3:lambda_0+3].mean(axis=2).T, cmap=plt.cm.gray,origin='lower', interpolation='nearest')
+##plt.contour(halo.T,1,linestyles='-',colors='b',linewidths=1.5);
+##plt.contour(ve1.T>40,1,linestyles='-',colors='#1d829e',linewidths=1.5);
+##
+##
+##plt.subplot(1,2,2)
+##
+##plt.plot(sp_init2*snr_diff_dec,':',color='b',linewidth=2.5,label='Bright region')
+##plt.plot(sp_ext,':',color='#1d829e',linewidth=2.5,label='Bright region')
 #
-#plt.subplot(1,2,1)
-#plt.imshow(Y_src[:,:,lambda_0-3:lambda_0+3].mean(axis=2).T, cmap=plt.cm.gray,origin='lower', interpolation='nearest')
-#plt.contour(gal.T,1,linestyles='-',colors='b',linewidths=1.5);
-#plt.contour(Xi.T,1,linestyles='-',colors='#cc0000',linewidths=1.5);
+##from matplotlib2tikz import save as tikz_save
 #
-#
-#plt.subplot(1,2,2)
-#
-#plt.plot(sp_init2/snr_diff_dec,':',color='b',linewidth=2.5,label='Bright region')
-#plt.plot(sp_init,':',color='#cc0000',linewidth=2.5,label='Bright region')
-#
-#from matplotlib2tikz import save as tikz_save
-#
-#tikz_save('/home/miv/courbot/Dropbox/Manuscrit/II/II-3/figures/test_init_ex.tex')
+##tikz_save('/home/miv/courbot/Dropbox/Manuscrit/II/II-3/figures/test_ext_ex.tex')
 #
 ##%%
-
-#plt.figure(figsize=(10,5))
+#nb_li = 1
+#nb_col = 4
+#plt.figure(figsize=(5*nb_col, 5*nb_li))
 #
 #
-reg_init2 = ma.masked_array(source_halo, np.tile((halo==0)[:,:,np.newaxis], (1,1,Y_src.shape[2])))
-sp_init2 = ma.mean(ma.mean(reg_init2, axis=0), axis=0)
-sp_halo = sp_init2-sp_init2[0]
+#plt.subplot(nb_li, nb_col,1) ;
+#plt.imshow(Y_src.mean(axis=2).T, cmap=plt.cm.gray_r,origin='lower', interpolation='nearest',vmin=0)
+#if test_simu==1:
+#    plt.contour(gal.T,1,linestyles='-',colors='#cc0000',linewidths=1.5);
+#    plt.contour(halo.T,1,linestyles='-',colors='#1d829e',linewidths=3)
+#    
+#plt.title('White image and ground truth')
 #
-#plt.subplot(1,2,1)
-#plt.imshow(Y_src[:,:,lambda_0-3:lambda_0+3].mean(axis=2).T, cmap=plt.cm.gray,origin='lower', interpolation='nearest')
-#plt.contour(halo.T,1,linestyles='-',colors='b',linewidths=1.5);
-#plt.contour(ve1.T>40,1,linestyles='-',colors='#1d829e',linewidths=1.5);
+#plt.subplot(nb_li, nb_col,3) ;
+#plt.imshow(Y_src[:,:,lambda_0-3:lambda_0+3].mean(axis=2).T, cmap=plt.cm.gray_r,origin='lower', interpolation='nearest',vmin=0)
+#plt.contour(Xi.T,1,linestyles='-',colors='#cc0000',linewidths=1.5);
+#plt.contour(Xe1.T,1,linestyles='-',colors='#1d829e',linewidths=3)
+#plt.title('Narrow-band Image, Detection Maps')
+#
+##
+##plt.subplot(nb_li,nb_col,3)
+##plt.imshow(ve1.T, origin='lower',vmin=0,cmap=plt.cm.jet,interpolation='nearest')
+##plt.colorbar()
+##
+##plt.contour(ve1.T, ksi)    
 #
 #
-#plt.subplot(1,2,2)
 #
-#plt.plot(sp_init2*snr_diff_dec,':',color='b',linewidth=2.5,label='Bright region')
-#plt.plot(sp_ext,':',color='#1d829e',linewidth=2.5,label='Bright region')
-
-#from matplotlib2tikz import save as tikz_save
-
-#tikz_save('/home/miv/courbot/Dropbox/Manuscrit/II/II-3/figures/test_ext_ex.tex')
-
-#%%
-nb_li = 1
-nb_col = 4
-plt.figure(figsize=(5*nb_col, 5*nb_li))
-
-
-plt.subplot(nb_li, nb_col,1) ;
-plt.imshow(Y_src.mean(axis=2).T, cmap=plt.cm.gray_r,origin='lower', interpolation='nearest',vmin=0)
-if test_simu==1:
-    plt.contour(gal.T,1,linestyles='-',colors='#cc0000',linewidths=1.5);
-    plt.contour(halo.T,1,linestyles='-',colors='#1d829e',linewidths=3)
-    
-plt.title('White image and ground truth')
-
-plt.subplot(nb_li, nb_col,3) ;
-plt.imshow(Y_src[:,:,lambda_0-3:lambda_0+3].mean(axis=2).T, cmap=plt.cm.gray_r,origin='lower', interpolation='nearest',vmin=0)
-plt.contour(Xi.T,1,linestyles='-',colors='#cc0000',linewidths=1.5);
-plt.contour(Xe1.T,1,linestyles='-',colors='#1d829e',linewidths=3)
-plt.title('Narrow-band Image, Detection Maps')
-
+#plt.subplot(nb_li,nb_col,4)
+#sp_range = np.arange(0,126,1.25)
 #
-#plt.subplot(nb_li,nb_col,3)
-#plt.imshow(ve1.T, origin='lower',vmin=0,cmap=plt.cm.jet,interpolation='nearest')
-#plt.colorbar()
-#
-#plt.contour(ve1.T, ksi)    
-
-
-
-plt.subplot(nb_li,nb_col,4)
-sp_range = np.arange(0,126,1.25)
-
-plt.plot(sp_reste,'-',color='#cccccc',linewidth=1,label='Outer region')
-plt.plot(sp_init,':',color='#cc0000',linewidth=2.5,label='Bright region')
-plt.plot(sp_ext,'-',color='#1d829e',linewidth=1.5, label='Faint spectra')
-plt.legend(loc='upper right',title='Integrated spectra on:')
-plt.grid()
-plt.title('Individual Spectra')
-plt.ylabel('Intensity')
-plt.xlabel('Bandwidth (1.25 Angstrom) ')
-plt.xlim((0,sp_init.size))
+#plt.plot(sp_reste,'-',color='#cccccc',linewidth=1,label='Outer region')
+#plt.plot(sp_init,':',color='#cc0000',linewidth=2.5,label='Bright region')
+#plt.plot(sp_ext,'-',color='#1d829e',linewidth=1.5, label='Faint spectra')
+#plt.legend(loc='upper right',title='Integrated spectra on:')
+#plt.grid()
+#plt.title('Individual Spectra')
+#plt.ylabel('Intensity')
+#plt.xlabel('Bandwidth (1.25 Angstrom) ')
+#plt.xlim((0,sp_init.size))
